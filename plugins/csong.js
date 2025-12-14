@@ -1,7 +1,7 @@
 const { cmd } = require("../command");
 const fs = require("fs");
 const path = require("path");
-const ytdl = require("ytdl-core"); // make sure to install: npm i ytdl-core
+const ytdl = require("ytdl-core"); // npm install ytdl-core
 
 // Fake vCard
 const fakevCard = {
@@ -27,7 +27,7 @@ END:VCARD`
 function toSeconds(time) {
   if (!time) return 0;
   const p = time.split(":").map(Number);
-  return p.length === 2 ? p[0] * 60 + p[1] : parseInt(time);
+  return (p.length === 2) ? p[0] * 60 + p[1] : parseInt(time);
 }
 
 cmd({
@@ -36,34 +36,26 @@ cmd({
   react: "🍁",
   desc: "Send a YouTube song to a WhatsApp Channel",
   category: "channel",
-  use: ".csong <song name or YouTube link> /<channel JID>",
+  use: ".csong <YouTube link> /<channel JID>",
   filename: __filename,
 }, async (conn, mek, m, { reply, q }) => {
   try {
-    if (!q) return reply("⚠️ Format:\n.csong <song or link> /<channel JID>");
+    if (!q || !q.includes("/")) return reply(
+      "⚠️ Use format:\n.csong <YouTube link> /<channel JID>\nExample:\n.csong https://youtu.be/abcd1234 /1203630xxxxx@newsletter"
+    );
 
-    let cleaned = q.trim();
-    let lastSlash = cleaned.lastIndexOf("/");
-    if (lastSlash === -1)
-      return reply("⚠️ Format:\n.csong <song or link> /<channel JID>");
+    // Split link & channel JID (support space before /)
+    let lastSlash = q.lastIndexOf("/");
+    const input = q.substring(0, lastSlash).trim();
+    const channelJid = q.substring(lastSlash + 1).trim();
 
-    let input = cleaned.substring(0, lastSlash).trim();
-    let channelJid = cleaned.substring(lastSlash + 1).trim();
+    if (!channelJid.endsWith("@newsletter")) return reply("❌ Invalid channel JID! It should end with @newsletter");
+    if (!input) return reply("⚠️ Please provide a YouTube link.");
 
-    if (!channelJid.endsWith("@newsletter"))
-      return reply("❌ Invalid channel JID! Must end with @newsletter");
+    if (!input.includes("youtu")) return reply("⚠️ Only YouTube links are supported.");
 
-    const isYT = input.includes("youtu");
-
-    let videoInfo;
-    if (isYT) {
-      // ✅ YouTube link download using ytdl-core
-      videoInfo = await ytdl.getInfo(input);
-    } else {
-      // 🔍 Search fallback (use YouTube search API or Nekolabs search)
-      return reply("⚠️ Only YouTube link supported in this version.");
-    }
-
+    // Fetch video info
+    const videoInfo = await ytdl.getInfo(input);
     const meta = {
       title: videoInfo.videoDetails.title,
       duration: videoInfo.videoDetails.lengthSeconds,
@@ -71,33 +63,38 @@ cmd({
       cover: videoInfo.videoDetails.thumbnails[videoInfo.videoDetails.thumbnails.length - 1].url
     };
 
-    const dlUrl = ytdl(input, { filter: "audioonly", quality: "highestaudio" });
-
-    // Temp path
-    const tmpPath = path.join(__dirname, "../temp", `song_${Date.now()}.mp3`);
-    const writeStream = fs.createWriteStream(tmpPath);
-
     // Download audio
+    const tempPath = path.join(__dirname, `../temp/${Date.now()}.mp3`);
+    const stream = ytdl(input, { filter: "audioonly", quality: "highestaudio" });
+    const writeStream = fs.createWriteStream(tempPath);
     await new Promise((resolve, reject) => {
-      dlUrl.pipe(writeStream);
-      dlUrl.on("end", resolve);
-      dlUrl.on("error", reject);
+      stream.pipe(writeStream);
+      stream.on("end", resolve);
+      stream.on("error", reject);
     });
 
-    // Send audio to channel
+    // Send thumbnail + details
+    const buffer = meta.cover ? Buffer.from(await (await fetch(meta.cover)).arrayBuffer()) : null;
+    const caption = `🎶 *RANUMITHA-X-MD SONG SENDER* 🎶\n\n*🎧 Title*: ${meta.title}\n*🫟 Channel*: ${meta.channel}\n*🕐 Time*: ${toSeconds(meta.duration)} seconds\n\n© Powered by 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝗗 🌛`;
+
     await conn.sendMessage(channelJid, {
-      audio: fs.readFileSync(tmpPath),
-      mimetype: "audio/mpeg",
-      ptt: false,
-      caption: `🎵 *${meta.title}*\n⏳ Duration: ${toSeconds(meta.duration)} seconds\n📺 Channel: ${meta.channel}`
+      image: buffer,
+      caption
     }, { quoted: fakevCard });
 
-    fs.unlinkSync(tmpPath);
+    // Send audio
+    const audioBuffer = fs.readFileSync(tempPath);
+    await conn.sendMessage(channelJid, {
+      audio: audioBuffer,
+      mimetype: "audio/mpeg",
+      ptt: false
+    }, { quoted: fakevCard });
 
-    reply(`✅ Sent *${meta.title}* to ${channelJid}`);
+    fs.unlinkSync(tempPath);
+    reply(`*✅ Song sent successfully*\n\n*🎧 Song Title*: ${meta.title}\n*🔖 Channel jid*: ${channelJid}`);
 
   } catch (err) {
-    console.error(err);
+    console.error("csong error:", err);
     reply("⚠️ Error while sending song.");
   }
 });
