@@ -8,36 +8,45 @@ cmd({
     react: "❌",
     filename: __filename
 },
-async (conn, mek, m, { from, isGroup, isBotAdmins, isAdmins, reply }) => {
+async (conn, mek, m, { from, reply }) => {
     try {
-        if (!isGroup) return reply("📛 *Group only command!*");
-        if (!isAdmins) return reply("📛 *You must be a group admin!*");
-        if (!isBotAdmins) return reply("📛 *Bot must be admin to remove!*");
+        if (!from.endsWith("@g.us")) return reply("📛 *Group only command!*");
 
+        // Fetch group metadata for admin checks
+        const groupMetadata = await conn.groupMetadata(from);
+        const participants = groupMetadata.participants || [];
+
+        const senderJid = mek.sender;
+        const botJid = conn.user.id.split(":")[0] + "@s.whatsapp.net";
+
+        // Get sender and bot info
+        const sender = participants.find(p => p.id === senderJid);
+        const bot = participants.find(p => p.id === botJid);
+
+        // Admin checks
+        const isSenderAdmin = sender?.admin === "admin" || sender?.admin === "superadmin";
+        const isBotAdmin = bot?.admin === "admin" || bot?.admin === "superadmin";
+
+        if (!isSenderAdmin) return reply("📛 *You must be a group admin!*");
+        if (!isBotAdmin) return reply("📛 *Bot must be admin to remove users!*");
+
+        // Determine target
         let targetJid;
-
-        // Check mention first
         const mentioned = mek.message?.extendedTextMessage?.contextInfo?.mentionedJid;
         if (mentioned && mentioned.length > 0) {
             targetJid = mentioned[0];
-        }
-        // Otherwise use reply
-        else if (mek.message?.extendedTextMessage?.contextInfo?.participant) {
+        } else if (mek.message?.extendedTextMessage?.contextInfo?.participant) {
             targetJid = mek.message.extendedTextMessage.contextInfo.participant;
-        }
-        else {
-            return reply("⚠️ *Please reply to a user or @mention them to kick!*");
-        }
-
-        // Prevent kicking the bot itself
-        const botJid = conn.user.id.split(':')[0] + "@s.whatsapp.net";
-        if (targetJid === botJid) {
-            return reply("😅 *I can't remove myself!*");
+        } else {
+            return reply("⚠️ *Reply to a user or @mention them to kick!*");
         }
 
-        // Remove participant
+        // Prevent bot from kicking itself
+        if (targetJid === botJid) return reply("😅 *I can't remove myself!*");
+
+        // Remove the participant
         await conn.groupParticipantsUpdate(from, [targetJid], "remove");
-        
+
         // Confirm removal
         await conn.sendMessage(from, {
             text: `✅ *Removed:* @${targetJid.split("@")[0]}`,
@@ -46,12 +55,12 @@ async (conn, mek, m, { from, isGroup, isBotAdmins, isAdmins, reply }) => {
 
     } catch (err) {
         console.error("Kick Error:", err);
-
-        // Better error feedback
         let errMsg = "❌ *Failed to remove user!*";
+
         if (err?.output?.statusCode === 409) {
             errMsg = "⚠️ *Cannot remove this user (maybe admin or permissions issue)*";
         }
+
         reply(errMsg);
     }
 });
