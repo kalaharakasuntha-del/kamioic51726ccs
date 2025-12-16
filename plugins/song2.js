@@ -25,6 +25,10 @@ END:VCARD`,
   },
 };
 
+// Temp folder
+const tempDir = path.join(__dirname, "../temp");
+if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
 cmd(
   {
     pattern: "song2",
@@ -32,36 +36,48 @@ cmd(
     react: "🎵",
     desc: "Download YouTube Song",
     category: "download",
-    use: ".song3 <song name>",
+    use: ".song2 <song name> OR reply + .song2",
     filename: __filename,
   },
 
   async (conn, mek, m, { from, reply, q }) => {
     try {
-      if (!q) return reply("⚠️ Please provide a song name or YouTube link (or reply to a message).");
+      // 🔹 Get reply text if no query
+      if (!q) {
+        const quoted =
+          mek.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+        if (quoted) {
+          q =
+            quoted.conversation ||
+            quoted.extendedTextMessage?.text;
+        }
+      }
 
-      // Search YouTube
+      if (!q)
+        return reply(
+          "⚠️ Please provide a song name or YouTube link (or reply to a message)."
+        );
+
+      // 🔍 Search YouTube
       const search = await yts(q);
-      if (!search.videos.length) return reply("❌ The song could not be found.");
+      if (!search.videos?.length)
+        return reply("❌ The song could not be found.");
 
       const video = search.videos[0];
-      const ytUrl = video.url;
 
-      // API
+      // 🌐 API
       const apiUrl = `https://gtech-api-xtp1.onrender.com/api/audio/yt?apikey=APIKEY&url=${encodeURIComponent(
-        ytUrl
+        video.url
       )}`;
 
       const { data } = await axios.get(apiUrl);
-
-      if (!data?.status || !data?.result?.media?.audio_url) {
+      if (!data?.status || !data?.result?.media?.audio_url)
         return reply("❌ Song download karanna bari una.");
-      }
 
       const audioUrl = data.result.media.audio_url;
       const thumbnail = data.result.media.thumbnail;
 
-      // Caption
+      // 📩 Menu message
       const caption = `
 🎶 *RANUMITHA-X-MD SONG DOWNLOADER* 🎶
 
@@ -69,15 +85,14 @@ cmd(
 ⏱ *Duration:* ${video.timestamp}
 📆 *Uploaded:* ${video.ago}
 👁 *Views:* ${video.views}
-🔗 *Url:* ${video.url}
 
 🔽 *Reply with your choice:*
 
-1️⃣ *Audio Type* 🎵
-2️⃣ *Document Type* 📁
-3️⃣ *Voice Note Type* 🎤
+1️⃣ Audio 🎵
+2️⃣ Document 📁
+3️⃣ Voice Note 🎤
 
-> © Powered by 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝗗 🌛`;
+> © 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝗗`;
 
       const sentMsg = await conn.sendMessage(
         from,
@@ -85,113 +100,109 @@ cmd(
         { quoted: fakevCard }
       );
 
-      const messageID = sentMsg.key.id;
+      const msgId = sentMsg.key.id;
 
-      // Reply Listener
-      conn.ev.on("messages.upsert", async (msgUpdate) => {
-        try {
-          const mekInfo = msgUpdate.messages[0];
-          if (!mekInfo?.message) return;
+      // 🧠 Reply handler
+      const handler = async (msgUpdate) => {
+        const mekInfo = msgUpdate.messages?.[0];
+        if (!mekInfo?.message) return;
 
-          const text =
-            mekInfo.message.conversation ||
-            mekInfo.message.extendedTextMessage?.text;
+        const text =
+          mekInfo.message.conversation ||
+          mekInfo.message.extendedTextMessage?.text;
 
-          const isReply =
-            mekInfo.message?.extendedTextMessage?.contextInfo?.stanzaId ===
-            messageID;
+        const isReply =
+          mekInfo.message?.extendedTextMessage?.contextInfo?.stanzaId === msgId;
 
-          if (!isReply) return;
+        if (!isReply) return;
 
-          const choice = text.trim();
+        const choice = text.trim();
+        const safeTitle = video.title.replace(/[\\/:*?"<>|]/g, "").slice(0, 80);
 
-          // ⬇️ Download react
-          await conn.sendMessage(from, {
-            react: { text: "⬇️", key: mekInfo.key },
+        const tempMp3 = path.join(tempDir, `${Date.now()}.mp3`);
+        const tempOpus = path.join(tempDir, `${Date.now()}.opus`);
+
+        // ⬇️ Download react
+        await conn.sendMessage(from, {
+          react: { text: "⬇️", key: mekInfo.key },
+        });
+
+        // ⬆️ Upload react
+        await conn.sendMessage(from, {
+          react: { text: "⬆️", key: mekInfo.key },
+        });
+
+        // 1️⃣ Audio
+        if (choice === "1") {
+          await conn.sendMessage(
+            from,
+            {
+              audio: { url: audioUrl },
+              mimetype: "audio/mpeg",
+              fileName: `${safeTitle}.mp3`,
+            },
+            { quoted: mek }
+          );
+
+        // 2️⃣ Document
+        } else if (choice === "2") {
+          await conn.sendMessage(
+            from,
+            {
+              document: { url: audioUrl },
+              mimetype: "audio/mpeg",
+              fileName: `${safeTitle}.mp3`,
+            },
+            { quoted: mek }
+          );
+
+        // 3️⃣ Voice note
+        } else if (choice === "3") {
+          const audioRes = await axios.get(audioUrl, {
+            responseType: "arraybuffer",
           });
 
-          const safeTitle = video.title
-            .replace(/[\\/:*?"<>|]/g, "")
-            .slice(0, 80);
+          fs.writeFileSync(tempMp3, audioRes.data);
 
-          const tempMp3 = path.join(__dirname, `../temp/${Date.now()}.mp3`);
-          const tempOpus = path.join(__dirname, `../temp/${Date.now()}.opus`);
-
-          // ⬆️ Upload react
-          await conn.sendMessage(from, {
-            react: { text: "⬆️", key: mekInfo.key },
+          await new Promise((res, rej) => {
+            ffmpeg(tempMp3)
+              .audioCodec("libopus")
+              .format("opus")
+              .audioBitrate("64k")
+              .save(tempOpus)
+              .on("end", res)
+              .on("error", rej);
           });
 
-          // 1️⃣ Audio
-          if (choice === "1") {
-            await conn.sendMessage(
-              from,
-              {
-                audio: { url: audioUrl },
-                mimetype: "audio/mpeg",
-                fileName: `${safeTitle}.mp3`,
-              },
-              { quoted: mek }
-            );
+          const voice = fs.readFileSync(tempOpus);
 
-          // 2️⃣ Document
-          } else if (choice === "2") {
-            await conn.sendMessage(
-              from,
-              {
-                document: { url: audioUrl },
-                mimetype: "audio/mpeg",
-                fileName: `${safeTitle}.mp3`,
-              },
-              { quoted: mek }
-            );
+          await conn.sendMessage(
+            from,
+            {
+              audio: voice,
+              mimetype: "audio/ogg; codecs=opus",
+              ptt: true,
+            },
+            { quoted: mek }
+          );
 
-          // 3️⃣ Voice Note
-          } else if (choice === "3") {
-            const audioRes = await axios.get(audioUrl, {
-              responseType: "arraybuffer",
-            });
-
-            fs.writeFileSync(tempMp3, audioRes.data);
-
-            await new Promise((resolve, reject) => {
-              ffmpeg(tempMp3)
-                .audioCodec("libopus")
-                .format("opus")
-                .audioBitrate("64k")
-                .save(tempOpus)
-                .on("end", resolve)
-                .on("error", reject);
-            });
-
-            const voiceBuffer = fs.readFileSync(tempOpus);
-
-            await conn.sendMessage(
-              from,
-              {
-                audio: voiceBuffer,
-                mimetype: "audio/ogg; codecs=opus",
-                ptt: true,
-              },
-              { quoted: mek }
-            );
-
-            fs.unlinkSync(tempMp3);
-            fs.unlinkSync(tempOpus);
-          } else {
-            return reply("*❌ Invalid choice!*");
-          }
-
-          // ✔️ Done react
-          await conn.sendMessage(from, {
-            react: { text: "✔️", key: mekInfo.key },
-          });
-        } catch (e) {
-          console.error("reply handler error:", e);
+          fs.unlinkSync(tempMp3);
+          fs.unlinkSync(tempOpus);
+        } else {
+          return reply("*❌ Invalid choice!*");
         }
-      });
-    } catch (err) {
-      console.error("song cmd error:", err);
+
+        // ✔️ Done react
+        await conn.sendMessage(from, {
+          react: { text: "✔️", key: mekInfo.key },
+        });
+
+        conn.ev.off("messages.upsert", handler);
+      };
+
+      conn.ev.on("messages.upsert", handler);
+    } catch (e) {
+      console.error(e);
       reply("*Error*");
     }
   }
