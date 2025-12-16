@@ -8,7 +8,7 @@ const ffmpeg = require("fluent-ffmpeg");
 cmd({
   pattern: "song4",
   react: "🎵",
-  desc: "YouTube Song Downloader (Multi Reply)",
+  desc: "YouTube Song Downloader (Multi Reply + Voice Note Fixed)",
   category: "download",
   use: ".song4 <query>",
   filename: __filename,
@@ -16,12 +16,19 @@ cmd({
   try {
     /* ===== QUERY ===== */
     let query = q?.trim();
+
     if (!query && m?.quoted) {
       query =
         m.quoted.message?.conversation ||
-        m.quoted.message?.extendedTextMessage?.text;
+        m.quoted.message?.extendedTextMessage?.text ||
+        m.quoted.text;
     }
-    if (!query) return reply("⚠️ Song name or YouTube link ekak denna");
+
+    if (!query) {
+      return reply(
+        "⚠️ Please provide a song name or YouTube link (or reply to a message)."
+      );
+    }
 
     if (query.includes("youtube.com/shorts/")) {
       const id = query.split("/shorts/")[1].split(/[?&]/)[0];
@@ -69,14 +76,14 @@ Reply with number 👇
 
     const menuId = sent.key.id;
 
-    /* ===== REACT ===== */
+    /* ===== REACT HELPER ===== */
     const react = async (emoji, key) => {
       await conn.sendMessage(from, {
         react: { text: emoji, key },
       });
     };
 
-    /* ===== LISTENER ===== */
+    /* ===== MULTI REPLY LISTENER ===== */
     const handler = async (up) => {
       const msg = up.messages?.[0];
       if (!msg?.message) return;
@@ -88,12 +95,15 @@ Reply with number 👇
       const stanzaId =
         msg.message.extendedTextMessage?.contextInfo?.stanzaId;
 
+      // only replies to this menu
       if (stanzaId !== menuId) return;
+
       if (!["1", "2", "3"].includes(text)) return;
 
+      /* ⬇️ DOWNLOAD START */
       await react("⬇️", msg.key);
 
-      /* ===== AUDIO ===== */
+      /* ===== OPTION 1 : AUDIO ===== */
       if (text === "1") {
         await react("⬆️", msg.key);
 
@@ -105,7 +115,7 @@ Reply with number 👇
         return react("✔️", msg.key);
       }
 
-      /* ===== DOCUMENT ===== */
+      /* ===== OPTION 2 : DOCUMENT ===== */
       if (text === "2") {
         const buffer = await axios.get(songUrl, {
           responseType: "arraybuffer",
@@ -122,18 +132,18 @@ Reply with number 👇
         return react("✔️", msg.key);
       }
 
-      /* ===== VOICE NOTE (FIXED) ===== */
+      /* ===== OPTION 3 : VOICE NOTE (FIXED) ===== */
       if (text === "3") {
         const mp3Path = path.join(__dirname, `${Date.now()}.mp3`);
         const opusPath = path.join(__dirname, `${Date.now()}.opus`);
 
-        /* download mp3 */
+        // Download mp3
         const stream = await axios.get(songUrl, { responseType: "stream" });
         const writer = fs.createWriteStream(mp3Path);
         stream.data.pipe(writer);
         await new Promise(r => writer.on("finish", r));
 
-        /* convert to opus */
+        // Convert to opus
         await new Promise((resolve, reject) => {
           ffmpeg(mp3Path)
             .audioCodec("libopus")
