@@ -57,7 +57,7 @@ cmd({
 ⏱️ ${video.timestamp}
 
 Reply with number 👇
-(You can reply multiple times)
+(Multi reply supported)
 
 1️⃣ Audio  
 2️⃣ MP3 Document  
@@ -69,14 +69,14 @@ Reply with number 👇
 
     const menuId = sent.key.id;
 
-    /* ===== REACT HELPER ===== */
+    /* ===== REACT ===== */
     const react = async (emoji, key) => {
       await conn.sendMessage(from, {
         react: { text: emoji, key },
       });
     };
 
-    /* ===== MULTI REPLY LISTENER ===== */
+    /* ===== LISTENER ===== */
     const handler = async (up) => {
       const msg = up.messages?.[0];
       if (!msg?.message) return;
@@ -88,33 +88,24 @@ Reply with number 👇
       const stanzaId =
         msg.message.extendedTextMessage?.contextInfo?.stanzaId;
 
-      // only replies to this menu
       if (stanzaId !== menuId) return;
+      if (!["1", "2", "3"].includes(text)) return;
 
-      if (!["1", "2", "3"].includes(text)) {
-        return reply("❌ 1, 2, or 3 kiyala reply karanna");
-      }
-
-      /* ⬇️ DOWNLOAD */
       await react("⬇️", msg.key);
 
-      /* ===== OPTION 1 : AUDIO ===== */
+      /* ===== AUDIO ===== */
       if (text === "1") {
         await react("⬆️", msg.key);
 
-        await conn.sendMessage(
-          from,
-          {
-            audio: { url: songUrl },
-            mimetype: "audio/mpeg",
-          },
-          { quoted: msg }
-        );
+        await conn.sendMessage(from, {
+          audio: { url: songUrl },
+          mimetype: "audio/mpeg",
+        }, { quoted: msg });
 
-        await react("✔️", msg.key);
+        return react("✔️", msg.key);
       }
 
-      /* ===== OPTION 2 : DOCUMENT ===== */
+      /* ===== DOCUMENT ===== */
       if (text === "2") {
         const buffer = await axios.get(songUrl, {
           responseType: "arraybuffer",
@@ -122,46 +113,48 @@ Reply with number 👇
 
         await react("⬆️", msg.key);
 
-        await conn.sendMessage(
-          from,
-          {
-            document: buffer.data,
-            mimetype: "audio/mpeg",
-            fileName: `${video.title}.mp3`,
-          },
-          { quoted: msg }
-        );
+        await conn.sendMessage(from, {
+          document: buffer.data,
+          mimetype: "audio/mpeg",
+          fileName: `${video.title}.mp3`,
+        }, { quoted: msg });
 
-        await react("✔️", msg.key);
+        return react("✔️", msg.key);
       }
 
-      /* ===== OPTION 3 : VOICE NOTE ===== */
+      /* ===== VOICE NOTE (FIXED) ===== */
       if (text === "3") {
-        const opus = path.join(__dirname, `${Date.now()}.opus`);
+        const mp3Path = path.join(__dirname, `${Date.now()}.mp3`);
+        const opusPath = path.join(__dirname, `${Date.now()}.opus`);
 
+        /* download mp3 */
+        const stream = await axios.get(songUrl, { responseType: "stream" });
+        const writer = fs.createWriteStream(mp3Path);
+        stream.data.pipe(writer);
+        await new Promise(r => writer.on("finish", r));
+
+        /* convert to opus */
         await new Promise((resolve, reject) => {
-          ffmpeg(songUrl)
+          ffmpeg(mp3Path)
             .audioCodec("libopus")
             .format("opus")
-            .save(opus)
+            .save(opusPath)
             .on("end", resolve)
             .on("error", reject);
         });
 
         await react("⬆️", msg.key);
 
-        await conn.sendMessage(
-          from,
-          {
-            audio: fs.readFileSync(opus),
-            mimetype: "audio/ogg; codecs=opus",
-            ptt: true,
-          },
-          { quoted: msg }
-        );
+        await conn.sendMessage(from, {
+          audio: fs.readFileSync(opusPath),
+          mimetype: "audio/ogg; codecs=opus",
+          ptt: true,
+        }, { quoted: msg });
 
-        fs.unlinkSync(opus);
-        await react("✔️", msg.key);
+        fs.unlinkSync(mp3Path);
+        fs.unlinkSync(opusPath);
+
+        return react("✔️", msg.key);
       }
     };
 
