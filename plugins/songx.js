@@ -15,7 +15,7 @@ cmd({
     filename: __filename
 }, async (conn, mek, m, { from, reply, q }) => {
     try {
-        // Get query
+        // Get query from text or quoted message
         let query = q?.trim();
         if (!query && m?.quoted) {
             query =
@@ -25,7 +25,7 @@ cmd({
         }
         if (!query) return reply("⚠️ Please provide a song name or YouTube link (or reply to a message).");
 
-        // Shorts link fix
+        // Convert Shorts link to normal YouTube link
         if (query.includes("youtube.com/shorts/")) {
             const videoId = query.split("/shorts/")[1].split(/[?&]/)[0];
             query = `https://www.youtube.com/watch?v=${videoId}`;
@@ -33,16 +33,16 @@ cmd({
 
         // Search YouTube
         const search = await yts(query);
-        if (!search.videos.length) return reply("❌ No results found.");
+        if (!search.videos.length) return reply("❌ No results found for your query.");
         const data = search.videos[0];
 
-        // Get download link
+        // Fetch download link
         const api = `https://api-aswin-sparky.koyeb.app/api/downloader/song?search=${encodeURIComponent(data.url)}`;
         const { data: apiRes } = await axios.get(api);
         if (!apiRes?.status || !apiRes.data?.url) return reply("❌ Unable to download the song!");
         const result = apiRes.data;
 
-        // Send options
+        // Send selection message
         const caption = `
 🎵 *Song Downloader* 📥
 
@@ -64,47 +64,45 @@ cmd({
             caption
         }, { quoted: m });
 
-        // Wait for **one reply only** for this message
-        const filter = (msg) => {
-            const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
-            const isReply = msg.message?.extendedTextMessage?.contextInfo?.stanzaId === sentMsg.key.id;
-            return text && isReply && msg.key.remoteJid === from;
-        };
+        // Track users who already replied
+        const repliedUsers = new Set();
 
+        // Temporary listener for this message
         const listener = async (msgData) => {
             const receivedMsg = msgData.messages[0];
-            if (!filter(receivedMsg)) return;
+            const receivedText = receivedMsg.message?.conversation || receivedMsg.message?.extendedTextMessage?.text;
+            const senderID = receivedMsg.key.remoteJid;
+            const isReplyToBot = receivedMsg.message?.extendedTextMessage?.contextInfo?.stanzaId === sentMsg.key.id;
 
-            // Remove listener immediately
-            conn.ev.off("messages.upsert", listener);
+            if (!isReplyToBot || !receivedText) return;
 
-            const receivedText = receivedMsg.message.conversation || receivedMsg.message.extendedTextMessage?.text;
+            // Ignore if user already replied
+            if (repliedUsers.has(senderID)) return;
+            repliedUsers.add(senderID);
 
-            // React: download started
-            await conn.sendMessage(from, { react: { text: '⬇️', key: receivedMsg.key } });
+            // React ⬇️ download started
+            await conn.sendMessage(senderID, { react: { text: '⬇️', key: receivedMsg.key } });
 
             switch (receivedText.trim()) {
                 case "1": // Audio
-                    await conn.sendMessage(from, { react: { text: '⬆️', key: receivedMsg.key } });
-                    await conn.sendMessage(from, {
+                    await conn.sendMessage(senderID, { react: { text: '⬆️', key: receivedMsg.key } });
+                    await conn.sendMessage(senderID, {
                         audio: { url: result.url },
                         mimetype: "audio/mpeg",
                         ptt: false
                     }, { quoted: receivedMsg });
-                    await conn.sendMessage(from, { react: { text: '✔️', key: receivedMsg.key } });
+                    await conn.sendMessage(senderID, { react: { text: '✔️', key: receivedMsg.key } });
                     break;
 
                 case "2": // Document
-                    await conn.sendMessage(from, { react: { text: '⬆️', key: receivedMsg.key } });
-                    await conn.sendMessage(from, {
-                        document: { url: result.url },
-                        mimetype: "audio/mpeg",
-                        fileName: `${data.title}.mp3`
+                    await conn.sendMessage(senderID, { react: { text: '⬆️', key: receivedMsg.key } });
+                    await conn.sendMessage(senderID, {
+                        document: { url: result.url, mimetype: "audio/mpeg", fileName: `${data.title}.mp3` }
                     }, { quoted: receivedMsg });
-                    await conn.sendMessage(from, { react: { text: '✔️', key: receivedMsg.key } });
+                    await conn.sendMessage(senderID, { react: { text: '✔️', key: receivedMsg.key } });
                     break;
 
-                case "3": // Voice Note
+                case "3": // Voice Note (Opus)
                     const tempInput = path.join(__dirname, `temp_${Date.now()}.mp3`);
                     const tempOutput = path.join(__dirname, `temp_${Date.now()}.opus`);
 
@@ -117,7 +115,7 @@ cmd({
                         writer.on('error', reject);
                     });
 
-                    await conn.sendMessage(from, { react: { text: '⬆️', key: receivedMsg.key } });
+                    await conn.sendMessage(senderID, { react: { text: '⬆️', key: receivedMsg.key } });
 
                     // Convert to Opus
                     await new Promise((resolve, reject) => {
@@ -128,14 +126,16 @@ cmd({
                             .on('error', reject);
                     });
 
-                    await conn.sendMessage(from, {
+                    // Send PTT
+                    await conn.sendMessage(senderID, {
                         audio: { url: tempOutput },
                         mimetype: "audio/ogg; codecs=opus",
                         ptt: true
                     }, { quoted: receivedMsg });
 
-                    await conn.sendMessage(from, { react: { text: '✔️', key: receivedMsg.key } });
+                    await conn.sendMessage(senderID, { react: { text: '✔️', key: receivedMsg.key } });
 
+                    // Clean up
                     fs.unlinkSync(tempInput);
                     fs.unlinkSync(tempOutput);
                     break;
@@ -145,10 +145,11 @@ cmd({
             }
         };
 
+        // Add listener for this command
         conn.ev.on("messages.upsert", listener);
 
     } catch (err) {
         console.error(err);
-        reply("❌ An error occurred. Try again later.");
+        reply("❌ An error occurred. Please try again later.");
     }
 });
