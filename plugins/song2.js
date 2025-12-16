@@ -101,9 +101,9 @@ cmd(
 
 🔽 *Reply with your choice:*
 
-*1. Audio Type* 🎵  
-*2. Document Type* 📁  
-*3. Voice Note Type* 🎤  
+1. *Audio Type* 🎵  
+2. *Document Type* 📁  
+3. *Voice Note Type* 🎤  
 
 > © Powerd by 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝗗 🌛`;
 
