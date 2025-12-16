@@ -27,10 +27,9 @@ END:VCARD`,
 
 cmd(
   {
-    pattern: "song2",
-    alias: ["play2"],
+    pattern: "song3",
     react: "🎵",
-    desc: "Download YouTube Song (Audio)",
+    desc: "Download YouTube Song",
     category: "download",
     use: ".song3 <song name>",
     filename: __filename,
@@ -38,15 +37,11 @@ cmd(
 
   async (conn, mek, m, { from, reply, q }) => {
     try {
-      if (!q) {
-        return reply("❓ Song name ekak hari YouTube link ekak hari denna.");
-      }
+      if (!q) return reply("❓ Song name ekak hari YouTube link ekak hari denna.");
 
       // Search YouTube
       const search = await yts(q);
-      if (!search.videos.length) {
-        return reply("❌ Song ekak hoyaganna bari una.");
-      }
+      if (!search.videos.length) return reply("❌ Song ekak hoyaganna bari una.");
 
       const video = search.videos[0];
       const ytUrl = video.url;
@@ -77,18 +72,15 @@ cmd(
 
 🔽 *Reply with your choice:*
 
-1️⃣ *Audio Type* 🎵  
-2️⃣ *Document Type* 📁  
-3️⃣ *Voice Note Type* 🎤  
+1️⃣ *Audio Type* 🎵
+2️⃣ *Document Type* 📁
+3️⃣ *Voice Note Type* 🎤
 
 > © Powered by 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝗗 🌛`;
 
       const sentMsg = await conn.sendMessage(
         from,
-        {
-          image: { url: thumbnail },
-          caption,
-        },
+        { image: { url: thumbnail }, caption },
         { quoted: fakevCard }
       );
 
@@ -100,18 +92,19 @@ cmd(
           const mekInfo = msgUpdate.messages[0];
           if (!mekInfo?.message) return;
 
-          const userText =
+          const text =
             mekInfo.message.conversation ||
             mekInfo.message.extendedTextMessage?.text;
 
           const isReply =
-            mekInfo?.message?.extendedTextMessage?.contextInfo?.stanzaId ===
+            mekInfo.message?.extendedTextMessage?.contextInfo?.stanzaId ===
             messageID;
 
           if (!isReply) return;
 
-          const choice = userText.trim();
+          const choice = text.trim();
 
+          // ⬇️ Download react
           await conn.sendMessage(from, {
             react: { text: "⬇️", key: mekInfo.key },
           });
@@ -123,7 +116,12 @@ cmd(
           const tempMp3 = path.join(__dirname, `../temp/${Date.now()}.mp3`);
           const tempOpus = path.join(__dirname, `../temp/${Date.now()}.opus`);
 
-          // Option 1 - Audio
+          // ⬆️ Upload react
+          await conn.sendMessage(from, {
+            react: { text: "⬆️", key: mekInfo.key },
+          });
+
+          // 1️⃣ Audio
           if (choice === "1") {
             await conn.sendMessage(
               from,
@@ -135,7 +133,7 @@ cmd(
               { quoted: mek }
             );
 
-          // Option 2 - Document
+          // 2️⃣ Document
           } else if (choice === "2") {
             await conn.sendMessage(
               from,
@@ -147,7 +145,7 @@ cmd(
               { quoted: mek }
             );
 
-          // Option 3 - Voice Note
+          // 3️⃣ Voice Note
           } else if (choice === "3") {
             const audioRes = await axios.get(audioUrl, {
               responseType: "arraybuffer",
@@ -179,16 +177,16 @@ cmd(
 
             fs.unlinkSync(tempMp3);
             fs.unlinkSync(tempOpus);
-
           } else {
-            return reply("❌ *Invalid choice!* 1, 2, or 3 kiyala reply karanna.");
+            return reply("*❌ Invalid choice!*");
           }
 
+          // ✔️ Done react
           await conn.sendMessage(from, {
             react: { text: "✔️", key: mekInfo.key },
           });
-        } catch (err) {
-          console.error("Reply handler error:", err);
+        } catch (e) {
+          console.error("reply handler error:", e);
         }
       });
     } catch (err) {
