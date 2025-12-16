@@ -1,152 +1,143 @@
-const { cmd } = require('../command');
-const fetch = require('node-fetch');
-const yts = require('yt-search');
-const axios = require('axios');
-const ffmpeg = require('fluent-ffmpeg');
-const fs = require('fs');
-const path = require('path');
+const { cmd } = require('../command')
+const yts = require('yt-search')
+const axios = require('axios')
+const fs = require('fs')
+const path = require('path')
+const ffmpeg = require('fluent-ffmpeg')
 
 cmd({
-    pattern: "song4",
-    react: "🎵",
-    desc: "Download YouTube MP3 / Voice Note",
-    category: "download",
-    use: ".song <query>",
-    filename: __filename
+  pattern: "song4",
+  react: "🎵",
+  desc: "YouTube Song Downloader",
+  category: "download",
+  use: ".song4 <query>",
+  filename: __filename
 }, async (conn, mek, m, { from, reply, q }) => {
-    try {
-        // Get query from text or quoted message
-        let query = q?.trim();
-        if (!query && m?.quoted) {
-            query =
-                m.quoted.message?.conversation ||
-                m.quoted.message?.extendedTextMessage?.text ||
-                m.quoted.text;
-        }
-        if (!query) return reply("⚠️ Please provide a song name or YouTube link (or reply to a message).");
+  try {
 
-        // Convert Shorts link to normal YouTube link
-        if (query.includes("youtube.com/shorts/")) {
-            const videoId = query.split("/shorts/")[1].split(/[?&]/)[0];
-            query = `https://www.youtube.com/watch?v=${videoId}`;
-        }
-
-        // Search YouTube
-        const search = await yts(query);
-        if (!search.videos.length) return reply("❌ No results found for your query.");
-        const data = search.videos[0];
-
-        // Fetch download link
-        const api = `https://api-aswin-sparky.koyeb.app/api/downloader/song?search=${encodeURIComponent(data.url)}`;
-        const { data: apiRes } = await axios.get(api);
-        if (!apiRes?.status || !apiRes.data?.url) return reply("❌ Unable to download the song!");
-        const result = apiRes.data;
-
-        // Send selection message
-        const caption = `
-🎵 *Song Downloader* 📥
-
-📑 *Title:* ${data.title}
-⏱️ *Duration:* ${data.timestamp}
-📆 *Uploaded:* ${data.ago}
-📊 *Views:* ${data.views}
-🔗 *Link:* ${data.url}
-
-🔢 *Reply Below Number*
-1️⃣ *Audio Type*
-2️⃣ *Document Type (MP3)*
-3️⃣ *Voice Note*
-
-> Powered by 𝙳𝙰𝚁𝙺-𝙺𝙽𝙸𝙶𝙷𝚃-𝚇𝙼𝙳`;
-
-        const sentMsg = await conn.sendMessage(from, {
-            image: { url: data.thumbnail },
-            caption
-        }, { quoted: m });
-
-        // Listener to handle multiple replies
-        const listener = async (msgData) => {
-            const receivedMsg = msgData.messages[0];
-            const receivedText = receivedMsg.message?.conversation || receivedMsg.message?.extendedTextMessage?.text;
-            const senderID = receivedMsg.key.remoteJid;
-            const isReplyToBot = receivedMsg.message?.extendedTextMessage?.contextInfo?.stanzaId === sentMsg.key.id;
-
-            if (!isReplyToBot || !receivedText) return;
-
-            // React ⬇️ download started
-            await conn.sendMessage(senderID, { react: { text: '⬇️', key: receivedMsg.key } });
-
-            switch (receivedText.trim()) {
-                case "1": // Audio
-                    await conn.sendMessage(senderID, { react: { text: '⬆️', key: receivedMsg.key } });
-                    await conn.sendMessage(senderID, {
-                        audio: { url: result.url },
-                        mimetype: "audio/mpeg",
-                        ptt: false
-                    }, { quoted: receivedMsg });
-                    await conn.sendMessage(senderID, { react: { text: '✔️', key: receivedMsg.key } });
-                    break;
-
-                case "2": // Document (MP3)
-                    await conn.sendMessage(senderID, { react: { text: '⬆️', key: receivedMsg.key } });
-                    await conn.sendMessage(senderID, {
-                        document: {
-                            url: result.url,            // direct MP3 link
-                            mimetype: "audio/mpeg",     // MP3 MIME
-                            fileName: `${data.title}.mp3` // ensures WhatsApp recognizes as MP3
-                        }
-                    }, { quoted: receivedMsg });
-                    await conn.sendMessage(senderID, { react: { text: '✔️', key: receivedMsg.key } });
-                    break;
-
-                case "3": // Voice Note (Opus)
-                    const tempInput = path.join(__dirname, `temp_${Date.now()}.mp3`);
-                    const tempOutput = path.join(__dirname, `temp_${Date.now()}.opus`);
-
-                    // Download MP3
-                    const writer = fs.createWriteStream(tempInput);
-                    const response = await axios.get(result.url, { responseType: 'stream' });
-                    response.data.pipe(writer);
-                    await new Promise((resolve, reject) => {
-                        writer.on('finish', resolve);
-                        writer.on('error', reject);
-                    });
-
-                    await conn.sendMessage(senderID, { react: { text: '⬆️', key: receivedMsg.key } });
-
-                    // Convert to Opus
-                    await new Promise((resolve, reject) => {
-                        ffmpeg(tempInput)
-                            .outputOptions(['-c:a libopus', '-b:a 64k', '-vbr on'])
-                            .save(tempOutput)
-                            .on('end', resolve)
-                            .on('error', reject);
-                    });
-
-                    // Send PTT
-                    await conn.sendMessage(senderID, {
-                        audio: { url: tempOutput },
-                        mimetype: "audio/ogg; codecs=opus",
-                        ptt: true
-                    }, { quoted: receivedMsg });
-
-                    await conn.sendMessage(senderID, { react: { text: '✔️', key: receivedMsg.key } });
-
-                    // Clean up
-                    fs.unlinkSync(tempInput);
-                    fs.unlinkSync(tempOutput);
-                    break;
-
-                default:
-                    reply("❌ Invalid option! Please reply with 1, 2, or 3.");
-            }
-        };
-
-        // Add listener for this command
-        conn.ev.on("messages.upsert", listener);
-
-    } catch (err) {
-        console.error(err);
-        reply("❌ An error occurred. Please try again later.");
+    /* ================= QUERY ================= */
+    let query = q?.trim()
+    if (!query && m?.quoted) {
+      query =
+        m.quoted.message?.conversation ||
+        m.quoted.message?.extendedTextMessage?.text
     }
-});
+    if (!query) return reply("⚠️ Song name or YouTube link ekak denna")
+
+    if (query.includes("youtube.com/shorts/")) {
+      const id = query.split("/shorts/")[1].split(/[?&]/)[0]
+      query = `https://www.youtube.com/watch?v=${id}`
+    }
+
+    /* ================= SEARCH ================= */
+    const search = await yts(query)
+    if (!search.videos.length) return reply("❌ Song eka hambune naha")
+
+    const video = search.videos[0]
+
+    /* ================= API ================= */
+    const api = `https://api-aswin-sparky.koyeb.app/api/downloader/song?search=${encodeURIComponent(video.url)}`
+    const { data } = await axios.get(api)
+    if (!data?.status || !data?.data?.url) {
+      return reply("❌ Download error")
+    }
+
+    const songUrl = data.data.url
+
+    /* ================= MENU ================= */
+    const sent = await conn.sendMessage(from, {
+      image: { url: video.thumbnail },
+      caption: `
+🎵 *Song Downloader*
+
+📌 *${video.title}*
+⏱️ ${video.timestamp}
+
+Reply with number 👇
+
+1️⃣ Audio  
+2️⃣ MP3 Document  
+3️⃣ Voice Note
+`
+    }, { quoted: m })
+
+    const menuId = sent.key.id
+
+    /* ================= LISTENER ================= */
+    const handler = async (up) => {
+      const msg = up.messages[0]
+      if (!msg?.message) return
+
+      const text =
+        msg.message.conversation ||
+        msg.message.extendedTextMessage?.text
+
+      const isReply =
+        msg.message.extendedTextMessage?.contextInfo?.stanzaId === menuId
+
+      if (!isReply) return
+
+      await conn.sendMessage(from, { react: { text: "⬇️", key: msg.key } })
+
+      /* ============ AUDIO ============ */
+      if (text === "1") {
+        await conn.sendMessage(from, { react: { text: "⬆️", key: msg.key } })
+        await conn.sendMessage(from, {
+          audio: { url: songUrl },
+          mimetype: "audio/mpeg"
+        }, { quoted: msg })
+        await conn.sendMessage(from, { react: { text: "✔️", key: msg.key } })
+      }
+
+      /* ============ DOCUMENT MP3 (BUFFER) ============ */
+      if (text === "2") {
+        const buffer = await axios.get(songUrl, { responseType: "arraybuffer" })
+
+        await conn.sendMessage(from, { react: { text: "⬆️", key: msg.key } })
+        await conn.sendMessage(from, {
+          document: buffer.data,
+          mimetype: "audio/mpeg",
+          fileName: `${video.title}.mp3`
+        }, { quoted: msg })
+        await conn.sendMessage(from, { react: { text: "✔️", key: msg.key } })
+      }
+
+      /* ============ VOICE NOTE ============ */
+      if (text === "3") {
+        const mp3 = path.join(__dirname, `${Date.now()}.mp3`)
+        const opus = path.join(__dirname, `${Date.now()}.opus`)
+
+        const res = await axios.get(songUrl, { responseType: "stream" })
+        const w = fs.createWriteStream(mp3)
+        res.data.pipe(w)
+        await new Promise(r => w.on("finish", r))
+
+        await new Promise((res, rej) => {
+          ffmpeg(mp3)
+            .audioCodec("libopus")
+            .save(opus)
+            .on("end", res)
+            .on("error", rej)
+        })
+
+        await conn.sendMessage(from, { react: { text: "⬆️", key: msg.key } })
+        await conn.sendMessage(from, {
+          audio: fs.readFileSync(opus),
+          mimetype: "audio/ogg; codecs=opus",
+          ptt: true
+        }, { quoted: msg })
+
+        await conn.sendMessage(from, { react: { text: "✔️", key: msg.key } })
+
+        fs.unlinkSync(mp3)
+        fs.unlinkSync(opus)
+      }
+    }
+
+    conn.ev.on("messages.upsert", handler)
+
+  } catch (e) {
+    console.error(e)
+    reply("❌ Error")
+  }
+})
