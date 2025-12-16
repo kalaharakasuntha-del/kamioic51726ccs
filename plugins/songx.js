@@ -6,7 +6,7 @@ const ffmpeg = require('fluent-ffmpeg');
 const path = require('path');
 
 cmd({
-    pattern: "song3",
+    pattern: "songx",
     react: "🎵",
     desc: "Download YouTube MP3",
     category: "download",
