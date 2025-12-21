@@ -12,7 +12,6 @@ async (conn, mek, m, { from, isGroup, isBotAdmins, isOwner, reply }) => {
     try {
         if (!isGroup) return reply("📛 *Group command only!*");
         if (!isOwner) return reply("📛 *Owner only command!*");
-        if (!isBotAdmins) return reply("📛 *Bot must be admin!*");
 
         let mentionedJid;
 
