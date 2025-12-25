@@ -3,62 +3,52 @@ const { cmd } = require("../command");
 cmd({
   pattern: "creact",
   react: "📢",
-  desc: "React to channel message using link only (no reply)",
+  desc: "Channel react using link only (no reply)",
   category: "channel",
-  use: ".creact <link> 🙂,🙃,😊",
+  use: ".creact <link>,💙",
   filename: __filename
 }, async (conn, mek, m, { q, reply }) => {
   try {
-    if (!q) return reply("❌ Use: .creact <channel_link> 🙂,🙃,😊");
+    if (!q)
+      return reply("❌ Use:\n.creact <channel_link>,💙");
 
-    // split by first space
-    const spaceIndex = q.indexOf(" ");
-    if (spaceIndex === -1)
-      return reply("❌ Link ekata passe space ekak one");
+    // split link and emojis
+    const parts = q.split(",");
+    if (parts.length < 2)
+      return reply("❌ Link ekata passe emoji denna");
 
-    const link = q.slice(0, spaceIndex).trim();
-    const emojiPart = q.slice(spaceIndex + 1).trim();
+    const link = parts.shift().trim();
+    const emojis = parts.map(e => e.trim()).filter(Boolean);
 
-    const emojis = emojiPart
-      .split(",")
-      .map(e => e.trim())
-      .filter(Boolean);
-
-    if (!emojis.length)
-      return reply("❌ Emoji list eka hari naha");
-
-    // extract ids from link
+    // extract channelId & messageId
     const match = link.match(
       /whatsapp\.com\/channel\/([A-Za-z0-9_-]+)\/([0-9]+)/
     );
-    if (!match) return reply("❌ Invalid channel message link");
+    if (!match)
+      return reply("❌ Invalid channel message link");
 
     const channelId = match[1];
     const messageId = match[2];
-
     const channelJid = `${channelId}@newsletter`;
 
-    // ⚠️ pseudo key (Baileys workaround)
+    // build fake key (Baileys workaround)
     const key = {
       remoteJid: channelJid,
       id: messageId,
-      fromMe: false,
-      participant: channelJid
+      fromMe: false
     };
 
     for (const emoji of emojis) {
       await conn.sendMessage(channelJid, {
         react: { text: emoji, key }
       });
-      await new Promise(r => setTimeout(r, 800));
+      await new Promise(r => setTimeout(r, 700));
     }
 
-    reply(`✅ React sent: ${emojis.join(" ")}`);
+    reply(`✅ Channel reacted: ${emojis.join(" ")}`);
 
   } catch (err) {
-    console.error("Channel React Error:", err);
-    reply(
-      "❌ React failed\n\nPossible reasons:\n• Bot not channel admin\n• Old message\n• WhatsApp limitation"
-    );
+    console.error("Channel react error:", err);
+    reply("❌ React failed (WhatsApp limitation)");
   }
 });
