@@ -1,54 +1,96 @@
-const { cmd } = require("../command");
+const fetch = require('node-fetch');
+const { cmd } = require('../command');
+
+// 🔐 API KEY (hidden)
+const BOT_API_KEY = "add api key from asitha.top";
 
 cmd({
-  pattern: "creact",
-  react: "📢",
-  desc: "Channel react using link only (no reply)",
-  category: "channel",
-  use: ".creact <link>,💙",
-  filename: __filename
-}, async (conn, mek, m, { q, reply }) => {
-  try {
-    if (!q)
-      return reply("❌ Use:\n.creact <channel_link>,💙");
+    pattern: "reactch",
+    alias: ["rch", "creact"],
+    desc: "Bot self only multi react",
+    category: "owner",
+    filename: __filename
+}, async (conn, m) => {
+    try {
+        // ✅ BOT SELF CHECK (CORRECT)
+        if (!m.fromMe) return; // bot msg not sent → ignore
 
-    // split link and emojis
-    const parts = q.split(",");
-    if (parts.length < 2)
-      return reply("❌ Link ekata passe emoji denna");
+        // ✅ READ TEXT SAFELY
+        const fullText =
+            m.text ||
+            m.message?.conversation ||
+            m.message?.extendedTextMessage?.text ||
+            "";
 
-    const link = parts.shift().trim();
-    const emojis = parts.map(e => e.trim()).filter(Boolean);
+        const args = fullText.trim().split(/\s+/).slice(1);
 
-    // extract channelId & messageId
-    const match = link.match(
-      /whatsapp\.com\/channel\/([A-Za-z0-9_-]+)\/([0-9]+)/
-    );
-    if (!match)
-      return reply("❌ Invalid channel message link");
+        if (args.length < 2) {
+            return m.reply(
+`❌ Usage:
+.reactch <CHANNEL_LINK> <EMOJI1>|<EMOJI2>|<EMOJI3>
 
-    const channelId = match[1];
-    const messageId = match[2];
-    const channelJid = `${channelId}@newsletter`;
+📌 Example:
+.reactch https://whatsapp.com/channel/xxxx 🔥|😍|😂`
+            );
+        }
 
-    // build fake key (Baileys workaround)
-    const key = {
-      remoteJid: channelJid,
-      id: messageId,
-      fromMe: false
-    };
+        const channelLink = args[0];
+        const emojis = args
+            .slice(1)
+            .join(" ")
+            .split("|")
+            .map(e => e.trim())
+            .filter(Boolean);
 
-    for (const emoji of emojis) {
-      await conn.sendMessage(channelJid, {
-        react: { text: emoji, key }
-      });
-      await new Promise(r => setTimeout(r, 700));
+        let success = 0;
+        let failed = 0;
+
+        for (const emoji of emojis) {
+            const url =
+`https://react.whyux-xec.my.id/api/rch?link=${encodeURIComponent(channelLink)}&emoji=${encodeURIComponent(emoji)}`;
+
+            try {
+                const res = await fetch(url, {
+                    method: "GET",
+                    headers: {
+                        "x-api-key": BOT_API_KEY
+                    }
+                });
+
+                const raw = await res.text();
+                let json;
+
+                try {
+                    json = JSON.parse(raw);
+                } catch {
+                    console.log("RAW API:", raw);
+                    failed++;
+                    continue;
+                }
+
+                if (json.success === true) success++;
+                else failed++;
+
+                // ⏳ safe delay
+                await new Promise(r => setTimeout(r, 600));
+
+            } catch (e) {
+                console.error("REACT ERROR:", e);
+                failed++;
+            }
+        }
+
+        return m.reply(
+`🤖 *BOT MULTI REACT DONE*
+━━━━━━━━━━━━━━
+🔗 Channel: ${channelLink}
+✨ Emojis: ${emojis.join(" ")}
+✅ Success: ${success}
+❌ Failed: ${failed}`
+        );
+
+    } catch (err) {
+        console.error("REACTCH FATAL:", err);
+        return m.reply("⚠️ React command crashed");
     }
-
-    reply(`✅ Channel reacted: ${emojis.join(" ")}`);
-
-  } catch (err) {
-    console.error("Channel react error:", err);
-    reply("❌ React failed (WhatsApp limitation)");
-  }
 });
