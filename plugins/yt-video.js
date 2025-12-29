@@ -93,78 +93,96 @@ cmd({
 
 > © Powered by 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝗗 🌛`;
 
-        const sentMsg = await conn.sendMessage(from, {
-            image: { url: data.thumbnail },
-            caption
-        }, { quoted: fakevCard });
+        // Send thumbnail + caption
+const sentMsg = await conn.sendMessage(from, {
+    image: { url: data.thumbnail },
+    caption
+}, { quoted: fakevCard });
 
-        const messageID = sentMsg.key.id;
+const messageID = sentMsg.key.id;
 
-        // 6️⃣ Listen for user replies
-        conn.ev.on("messages.upsert", async (msgData) => {
-            const receivedMsg = msgData.messages[0];
-            if (!receivedMsg?.message) return;
+// ================= LISTENER =================
+conn.ev.on("messages.upsert", async ({ messages }) => {
+    try {
+        const receivedMsg = messages[0];
+        if (!receivedMsg?.message) return;
 
-            const receivedText =
-                receivedMsg.message.conversation ||
-                receivedMsg.message.extendedTextMessage?.text;
+        const receivedText =
+            receivedMsg.message.conversation ||
+            receivedMsg.message.extendedTextMessage?.text;
 
-            const senderID = receivedMsg.key.remoteJid;
-            const isReplyToBot =
-                receivedMsg.message.extendedTextMessage?.contextInfo?.stanzaId === messageID;
+        if (!receivedText) return;
 
-            if (isReplyToBot) {
-                let selectedFormat, isDocument = false;
+        const senderID = receivedMsg.key.remoteJid;
 
-                switch (receivedText.trim().toUpperCase()) {
-                    case "1.1": selectedFormat = "240p"; break;
-                    case "1.2": selectedFormat = "360p"; break;
-                    case "1.3": selectedFormat = "480p"; break;
-                    case "1.4": selectedFormat = "720p"; break;
-                    case "2.1": selectedFormat = "240p"; isDocument = true; break;
-                    case "2.2": selectedFormat = "360p"; isDocument = true; break;
-                    case "2.3": selectedFormat = "480p"; isDocument = true; break;
-                    case "2.4": selectedFormat = "720p"; isDocument = true; break;
-                    default:
-                        return reply("*❌ Invalid option!*");
-                }
+        const isReplyToBot =
+            receivedMsg.message.extendedTextMessage?.contextInfo?.stanzaId === messageID;
 
-                // React ⬇️ when download starts
-                await conn.sendMessage(senderID, { react: { text: '⬇️', key: receivedMsg.key } });
+        if (!isReplyToBot) return;
 
-                const { data: apiRes } = await axios.get(formats[selectedFormat]);
+        let selectedFormat;
+        let isDocument = false;
 
-                if (!apiRes?.status || !apiRes.result?.download) {
-                    await conn.sendMessage(senderID, { react: { text: '❌', key: receivedMsg.key } });
-                    return reply(`❌ Unable to download the ${selectedFormat} version. Try another one!`);
-                }
+        switch (receivedText.trim()) {
+            case "1.1": selectedFormat = "240p"; break;
+            case "1.2": selectedFormat = "360p"; break;
+            case "1.3": selectedFormat = "480p"; break;
+            case "1.4": selectedFormat = "720p"; break;
 
-                const result = apiRes.result;
+            case "2.1": selectedFormat = "240p"; isDocument = true; break;
+            case "2.2": selectedFormat = "360p"; isDocument = true; break;
+            case "2.3": selectedFormat = "480p"; isDocument = true; break;
+            case "2.4": selectedFormat = "720p"; isDocument = true; break;
 
-                // React ⬆️ before uploading
-                await conn.sendMessage(senderID, { react: { text: '⬆️', key: receivedMsg.key } });
+            default:
+                return conn.sendMessage(
+                    senderID,
+                    { text: "❌ Invalid option!\nReply with 1.1 – 1.4 or 2.1 – 2.4" },
+                    { quoted: receivedMsg }
+                );
+        }
 
-                if (isDocument) {
-                    await conn.sendMessage(senderID, {
-                        document: { url: result.download },
-                        mimetype: "video/mp4",
-                        fileName: `${data.title}.mp4`
-                    }, { quoted: receivedMsg });
-                } else {
-                    await conn.sendMessage(senderID, {
-                        video: { url: result.download },
-                        mimetype: "video/mp4",
-                        ptt: false,
-                    }, { quoted: receivedMsg });
-                }
-
-                // React ✅ after upload complete
-                await conn.sendMessage(senderID, { react: { text: '✔️', key: receivedMsg.key } });
-            }
+        // ⬇️ Download start
+        await conn.sendMessage(senderID, {
+            react: { text: "⬇️", key: receivedMsg.key }
         });
 
-    } catch (error) {
-        console.error("Video Command Error:", error);
-        reply("❌ An error occurred while processing your request. Please try again later.");
+        const { data: apiRes } = await axios.get(formats[selectedFormat]);
+
+        if (!apiRes?.success || !apiRes.result?.downloadUrl) {
+            await conn.sendMessage(senderID, {
+                react: { text: "❌", key: receivedMsg.key }
+            });
+            return;
+        }
+
+        const result = apiRes.result;
+
+        // ⬆️ Upload start
+        await conn.sendMessage(senderID, {
+            react: { text: "⬆️", key: receivedMsg.key }
+        });
+
+        if (isDocument) {
+            await conn.sendMessage(senderID, {
+                document: { url: result.downloadUrl },
+                mimetype: "video/mp4",
+                fileName: `${result.title}.mp4`
+            }, { quoted: receivedMsg });
+        } else {
+            await conn.sendMessage(senderID, {
+                video: { url: result.downloadUrl },
+                mimetype: "video/mp4",
+                ptt: false
+            }, { quoted: receivedMsg });
+        }
+
+        // ✅ Done
+        await conn.sendMessage(senderID, {
+            react: { text: "✔️", key: receivedMsg.key }
+        });
+
+    } catch (err) {
+        console.error("Reply Handler Error:", err);
     }
 });
