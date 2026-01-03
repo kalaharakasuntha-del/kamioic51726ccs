@@ -37,7 +37,7 @@ cmd({
 }, async (conn, m, store, { from, q, reply }) => {
   try {
     if (!q || !q.startsWith("https://")) {
-      return reply("❌ Valid Instagram link ekak denna");
+      return reply("❌ Please provide a valid Instagram URL");
     }
 
     // ⏳ Fetching
