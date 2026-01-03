@@ -1,56 +1,52 @@
 const { cmd } = require("../command");
-const fs = require("fs");
-const path = require("path");
-const ffmpeg = require("fluent-ffmpeg");
 
 cmd({
   pattern: "getvideonote",
   alias: ["gvn"],
-  desc: "Reply video → WhatsApp Video Note (PTV)",
+  desc: "Convert replied video to WhatsApp Video Note",
   category: "owner",
   react: "🎥",
+  use: ".gvn <reply to video>",
   filename: __filename,
 }, async (conn, mek, m, { from, reply }) => {
   try {
-    if (!m.quoted || m.quoted.mtype !== "videoMessage") {
-      return reply("❌ Video ekakata reply karanna");
+    // Check reply
+    if (!m.quoted) {
+      return reply("⚠️ *Please reply to a video!*");
     }
 
-    const input = path.join(__dirname, "../temp/in.mp4");
-    const output = path.join(__dirname, "../temp/out.mp4");
+    // Check message type
+    if (m.quoted.mtype !== "videoMessage") {
+      return reply("⚠️ *Reply only to a video message!*");
+    }
 
-    const buffer = await m.quoted.download();
-    fs.writeFileSync(input, buffer);
-
-    await new Promise((res, rej) => {
-      ffmpeg(input)
-        .outputOptions([
-          "-vf scale=480:480:force_original_aspect_ratio=increase,crop=480:480",
-          "-c:v libx264",
-          "-pix_fmt yuv420p",
-          "-profile:v baseline",
-          "-level 3.0",
-          "-r 25",
-          "-movflags +faststart",
-          "-t 60"
-        ])
-        .on("end", res)
-        .on("error", rej)
-        .save(output);
+    // Reaction: downloading
+    await conn.sendMessage(from, {
+      react: { text: "⬇️", key: mek.key }
     });
 
-    // 🔥 PTV SEND (EXACT LIKE YOUR SAMPLE)
+    // Download video
+    const videoBuffer = await m.quoted.download();
+
+    // Reaction: uploading
     await conn.sendMessage(from, {
-      video: fs.readFileSync(output),
+      react: { text: "⬆️", key: mek.key }
+    });
+
+    // Send as Video Note (PTV)
+    await conn.sendMessage(from, {
+      video: videoBuffer,
       mimetype: "video/mp4",
-      ptv: true, // ✅ THIS IS THE MAGIC
+      ptv: true
     }, { quoted: mek });
 
-    fs.unlinkSync(input);
-    fs.unlinkSync(output);
+    // Done reaction
+    await conn.sendMessage(from, {
+      react: { text: "✔️", key: mek.key }
+    });
 
-  } catch (e) {
-    console.error(e);
-    reply("❌ PTV convert error");
+  } catch (err) {
+    console.error(err);
+    reply("*Error while creating video note!*");
   }
 });
