@@ -1,62 +1,69 @@
-const { cmd } = require("../command");
-const fetch = require("node-fetch");
-const fs = require("fs");
-const path = require("path");
-const ffmpeg = require("fluent-ffmpeg");
+const { cmd } = require('../command');
+const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 
 cmd({
-  pattern: "getvnote",
-  alias: ["gvn"],
-  desc: "Convert video to WhatsApp Video Note",
-  category: "owner",
-  react: "🎥",
-  filename: __filename,
-}, async (conn, mek, m, { from, reply, q }) => {
-  try {
-    let buffer;
+    pattern: 'getvideonote',
+    desc: 'Send any video URL as a video note',
+    sucReact: '🎬',
+    category: ['download', 'utility'],
+    async handler(m, conn) {
+        let text = m.text || '';
+        let args = text.trim().split(' ');
+        let videoUrl = args[1];
 
-    if (m.quoted && m.quoted.mtype === "videoMessage") {
-      buffer = await m.quoted.download();
-    } else if (q) {
-      const res = await fetch(q);
-      buffer = Buffer.from(await res.arrayBuffer());
-    } else {
-      return reply("⚠️ Video ekakata reply karanna naththang URL ekak denna");
+        if (!videoUrl) {
+            return conn.sendMessage(
+                m.from,
+                { text: '❌ Please provide a video URL!\nExample: .getvideonote https://example.com/video.mp4' },
+                { quoted: m }
+            );
+        }
+
+        // Temporary file path
+        const tempFile = path.join(__dirname, `temp_${Date.now()}.mp4`);
+
+        try {
+            // Download video
+            const response = await axios({
+                method: 'GET',
+                url: videoUrl,
+                responseType: 'stream'
+            });
+
+            const writer = fs.createWriteStream(tempFile);
+            response.data.pipe(writer);
+
+            // Wait for download to finish
+            await new Promise((resolve, reject) => {
+                writer.on('finish', resolve);
+                writer.on('error', reject);
+            });
+
+            // Send as video note
+            await conn.sendMessage(
+                m.from,
+                {
+                    video: fs.readFileSync(tempFile),
+                    mimetype: 'video/mp4',
+                    ptv: true
+                },
+                { quoted: m }
+            );
+
+            // Delete temp file
+            fs.unlinkSync(tempFile);
+
+        } catch (err) {
+            console.error(err);
+            if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+
+            await conn.sendMessage(
+                m.from,
+                { text: '❌ Failed to send video note. Check the URL or try again.' },
+                { quoted: m }
+            );
+        }
     }
-
-    const inPath = path.join(__dirname, `../temp/in_${Date.now()}.mp4`);
-    const outPath = path.join(__dirname, `../temp/out_${Date.now()}.mp4`);
-    fs.writeFileSync(inPath, buffer);
-
-    await new Promise((resolve, reject) => {
-      ffmpeg(inPath)
-        .outputOptions([
-          "-vf scale=512:512:force_original_aspect_ratio=increase,crop=512:512",
-          "-c:v libx264",
-          "-profile:v baseline",
-          "-level 3.0",
-          "-pix_fmt yuv420p",
-          "-movflags +faststart",
-          "-c:a aac",
-          "-b:a 128k",
-          "-shortest"
-        ])
-        .on("end", resolve)
-        .on("error", err => reject(err))
-        .save(outPath);
-    });
-
-    await conn.sendMessage(from, {
-      video: fs.readFileSync(outPath),
-      mimetype: "video/mp4",
-      ptv: true,
-    }, { quoted: mek });
-
-    fs.unlinkSync(inPath);
-    fs.unlinkSync(outPath);
-
-  } catch (e) {
-    console.error("FFMPEG ERROR:", e);
-    reply("❌ Video Note convert fail una. FFmpeg check karanna.");
-  }
 });
