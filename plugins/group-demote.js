@@ -10,18 +10,13 @@ cmd({
 },
 async (conn, mek, m, {
     from, quoted, body, args, q,
-    isGroup, sender, botNumber, participants, isAdmins, isBotAdmins, reply
+    isGroup, isOwner, sender, botNumber, participants, isAdmins, isBotAdmins, reply
 }) => {
     try {
         // Only usable in groups
         if (!isGroup) return reply("❌ This command can only be used in groups.");
-
-        // Only admins can use it
-        if (!isAdmins) return reply("❌ Only group admins can use this command.");
-
-        // Bot must be admin
-        if (!isBotAdmins) return reply("❌ I need to be an admin to use this command.");
-
+        if (!isOwner) return reply("📛 *Owner only command!*");
+        
         let number;
 
         // Get number from reply, mention, or args
