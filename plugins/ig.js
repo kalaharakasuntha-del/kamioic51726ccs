@@ -1,124 +1,90 @@
 const axios = require("axios");
 const { cmd } = require('../command');
 
-// Fake vCard
-const fakevCard = {
-    key: {
-        fromMe: false,
-        participant: "0@s.whatsapp.net",
-        remoteJid: "status@broadcast"
-    },
-    message: {
-        contactMessage: {
-            displayName: "© Mr Hiruka",
-            vcard: `BEGIN:VCARD
-VERSION:3.0
-FN:Meta
-ORG:META AI;
-TEL;type=CELL;type=VOICE;waid=94762095304:+94762095304
-END:VCARD`
-        }
-    }
-};
 
 cmd({
-    pattern: "instagram",
-    alias: ["insta"],
-    react: "📥",
-    desc: "Download Instagram Video / Audio",
-    category: "download",
-    use: ".instagram <url>",
-    filename: __filename
-}, async (conn, mek, m, { from, reply, q }) => {
-    try {
-        if (!q || !q.startsWith("http")) {
-            return reply("❌ Please provide a valid Instagram link");
-        }
+  pattern: "instagram",
+  alias: ["insta"],
+  desc: "Download Instagram videos and audio",
+  category: "download",
+  filename: __filename
+}, async (conn, m, store, { from, quoted, q, reply }) => {
+  try {
+    if (!q || !q.startsWith("https://")) {
+      return conn.sendMessage(from, { text: "❌ Please provide a valid Instagram URL." }, { quoted: m });
+    }
 
-        // ⏳ Processing react
-        await conn.sendMessage(from, { react: { text: "⏳", key: m.key } });
+    await conn.sendMessage(from, { react: { text: '⏳', key: m.key } });
 
-        const apiUrl = `https://api-aswin-sparky.koyeb.app/api/downloader/igdl?url=${encodeURIComponent(q)}`;
-        const { data } = await axios.get(apiUrl);
+    const apiUrl = `https://api-aswin-sparky.koyeb.app/api/downloader/igdl?url=${encodeURIComponent(q)}`;
+    const response = await axios.get(apiUrl);
+    const data = response.data;
 
-        if (!data?.status || !data.data?.length) {
-            return reply("❌ Failed to fetch Instagram media");
-        }
+    if (!data || !data.status || !data.data || data.data.length === 0) {
+      return reply("⚠️ Failed to retrieve Instagram media. Please check the link and try again.");
+    }
 
-        const media = data.data[0];
+    const media = data.data[0];
+    const caption = `
+📺 Instagram Downloader. 📥
 
-        const caption = `
-*📥 RANUMITHA-X-MD INSTAGRAM DOWNLOADER*
-
-*🗂️ Type:* ${media.type.toUpperCase()}
-*🔗 Link:* ${q}
+🗂️ *Type:* ${media.type.toUpperCase()}
+🔗 *Link:* ${q}
 
 🔢 *Reply Below Number*
 
-1️⃣ *Video (HD)* 📽️
-2️⃣ *Audio (MP3)* 🎶
+1️⃣  *HD Quality*🔋
+2️⃣  *Audio (MP3)*🎶
 
-> © Powered by 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝗗 🌛`;
+> Powered by 𝙳𝙰𝚁𝙺-𝙺𝙽𝙸𝙶𝙷𝚃-𝚇𝙼𝙳`;
 
-        const sentMsg = await conn.sendMessage(from, {
-            image: { url: media.thumbnail },
-            caption
-        }, { quoted: fakevCard });
+    const sentMsg = await conn.sendMessage(from, {
+      image: { url: media.thumbnail },
+      caption
+    }, { quoted: m });
 
-        const messageID = sentMsg.key.id;
+    const messageID = sentMsg.key.id;
 
-        // 🔁 Listen for reply (SAFE listener)
-        const handler = async ({ messages }) => {
-            const msg = messages[0];
-            if (!msg?.message) return;
+    // 🧠 Listen for user reply
+    conn.ev.on("messages.upsert", async (msgData) => {
+      const receivedMsg = msgData.messages[0];
+      if (!receivedMsg?.message) return;
 
-            const text =
-                msg.message.conversation ||
-                msg.message.extendedTextMessage?.text;
+      const receivedText = receivedMsg.message.conversation || receivedMsg.message.extendedTextMessage?.text;
+      const senderID = receivedMsg.key.remoteJid;
+      const isReplyToBot = receivedMsg.message.extendedTextMessage?.contextInfo?.stanzaId === messageID;
 
-            const isReply =
-                msg.message.extendedTextMessage?.contextInfo?.stanzaId === messageID;
+      if (isReplyToBot) {
+        await conn.sendMessage(senderID, { react: { text: '⏳', key: receivedMsg.key } });
 
-            if (!isReply) return;
-
-            // remove listener after use
-            conn.ev.off("messages.upsert", handler);
-
-            // ⬇️ Download react
-            await conn.sendMessage(from, { react: { text: "⬇️", key: msg.key } });
-
-            switch (text.trim()) {
-                case "1":
-                    if (media.type !== "video") {
-                        return reply("❌ This post has no video");
-                    }
-
-                    await conn.sendMessage(from, {
-                        video: { url: media.url },
-                        mimetype: "video/mp4"
-                    }, { quoted: msg });
-                    break;
-
-                case "2":
-                    await conn.sendMessage(from, {
-                        audio: { url: media.url },
-                        mimetype: "audio/mpeg",
-                        ptt: false
-                    }, { quoted: msg });
-                    break;
-
-                default:
-                    return reply("❌ Invalid option");
+        switch (receivedText.trim()) {
+          case "1":
+            if (media.type === "video") {
+              await conn.sendMessage(senderID, {
+                video: { url: media.url },
+                caption: "📥 *Video Downloaded Successfully!*"
+              }, { quoted: receivedMsg });
+            } else {
+              reply("⚠️ No video found for this post.");
             }
+            break;
 
-            // ✔️ Done react
-            await conn.sendMessage(from, { react: { text: "✔️", key: msg.key } });
-        };
+          case "2":
+              await conn.sendMessage(senderID, {
+                audio: { url: media.url },
+                mimetype: "audio/mp4",
+                ptt: false
+              }, { quoted: receivedMsg });
+            break;
 
-        conn.ev.on("messages.upsert", handler);
+          default:
+            reply("❌ Invalid option! Please reply with 1 or 2.");
+        }
+      }
+    });
 
-    } catch (e) {
-        console.log(e);
-        reply("❌ Error occurred");
-    }
+  } catch (error) {
+    console.error("Instagram Plugin Error:", error);
+    reply("❌ An error occurred while processing your request. Please try again later.");
+  }
 });
