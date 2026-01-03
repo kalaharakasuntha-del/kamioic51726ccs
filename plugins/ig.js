@@ -1,27 +1,25 @@
 const axios = require("axios");
 const { cmd } = require('../command');
 
-
-// Fake ChatGPT vCard
+// Fake vCard
 const fakevCard = {
-    key: {
-        fromMe: false,
-        participant: "0@s.whatsapp.net",
-        remoteJid: "status@broadcast"
-    },
-    message: {
-        contactMessage: {
-            displayName: "© Mr Hiruka",
-            vcard: `BEGIN:VCARD
+  key: {
+    fromMe: false,
+    participant: "0@s.whatsapp.net",
+    remoteJid: "status@broadcast"
+  },
+  message: {
+    contactMessage: {
+      displayName: "© Mr Hiruka",
+      vcard: `BEGIN:VCARD
 VERSION:3.0
 FN:Meta
 ORG:META AI;
 TEL;type=CELL;type=VOICE;waid=94762095304:+94762095304
 END:VCARD`
-        }
     }
+  }
 };
-
 
 // 🔐 Global session store
 global.activeIGMenus = global.activeIGMenus || new Map();
@@ -31,7 +29,7 @@ global.activeIGMenus = global.activeIGMenus || new Map();
 cmd({
   pattern: "ig",
   alias: ["insta", "instagram"],
-  desc: "Instagram Downloader (Full Fixed)",
+  desc: "Instagram Downloader (Fixed)",
   category: "download",
   filename: __filename
 }, async (conn, m, store, { from, q, reply }) => {
@@ -40,36 +38,20 @@ cmd({
       return reply("❌ Please provide a valid Instagram URL");
     }
 
-    // ⏳ Fetching
     await conn.sendMessage(from, {
       react: { text: "📽️", key: m.key }
     });
 
-    let data;
-    try {
-      const res = await axios.get(
-        `https://api-aswin-sparky.koyeb.app/api/downloader/igdl?url=${encodeURIComponent(q)}`,
-        { timeout: 15000 }
-      );
-      data = res.data;
-    } catch {
-      const res = await axios.get(
-        `https://api-aswin-sparky.koyeb.app/api/downloader/igdl?url=${encodeURIComponent(q)}`,
-        { timeout: 15000 }
-      );
-      data = res.data;
+    const res = await axios.get(
+      `https://api-aswin-sparky.koyeb.app/api/downloader/igdl?url=${encodeURIComponent(q)}`,
+      { timeout: 15000 }
+    );
+
+    if (!res.data?.status || !res.data.data?.length) {
+      return reply("⚠️ Failed to retrieve Instagram file");
     }
 
-    if (!data?.status || !data.data?.length) {
-      return reply("*⚠️ Failed to retrieve Instagram file*");
-    }
-
-    const media = data.data[0];
-
-    // 📽️ Ready
-    await conn.sendMessage(from, {
-      react: { text: "📽️", key: m.key }
-    });
+    const media = res.data.data[0];
 
     const menuMsg = await conn.sendMessage(from, {
       image: { url: media.thumbnail },
@@ -77,39 +59,35 @@ cmd({
 📽️ *RANUMITHA-X-MD INSTAGRAM DOWNLOADER* 📽️
 
 📑 *File type:* ${media.type.toUpperCase()}
-🔗 *Link:* ${q}
 
 💬 *Reply with your choice:*
+1️⃣ Video 🎥
+2️⃣ Audio 🎶
 
- 1️⃣ Video Type 🎥
- 2️⃣ Audio only 🎶
-
-> © Powered by 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝗗 🌛`
+> © Powered by RANUMITHA-X-MD 🌛`
     }, { quoted: fakevCard });
 
-    // 🔐 Save session
     global.activeIGMenus.set(menuMsg.key.id, {
       media,
       from
     });
 
-    // 🧹 Auto clear after 10 min
     setTimeout(() => {
       global.activeIGMenus.delete(menuMsg.key.id);
     }, 10 * 60 * 1000);
 
-  } catch (err) {
-    console.error("IG CMD ERROR:", err);
-    reply("*Error*");
+  } catch (e) {
+    console.error(e);
+    reply("*Error occurred*");
   }
 });
 
 /* ================= ONE GLOBAL LISTENER ================= */
 
-cmd({
-  on: "body"
-}, async (conn, m) => {
+cmd({ on: "body" }, async (conn, m) => {
   try {
+    // ✅ VERY IMPORTANT FIX
+    if (m.key.fromMe) return; // ❌ ignore bot messages
     if (!m.message?.extendedTextMessage) return;
 
     const text = m.message.extendedTextMessage.text?.trim();
@@ -121,21 +99,19 @@ cmd({
 
     const { media, from } = session;
 
-    // ❌ INVALID OPTION CHECK
+    // ❌ Invalid option
     if (text !== "1" && text !== "2") {
       return conn.sendMessage(from, {
-        text: "*❌ Invalid option!*"
+        text: "*❌ Invalid option!*\nReply with 1 or 2"
       }, { quoted: m });
     }
 
-    // ⬇️ Downloading
     await conn.sendMessage(from, {
       react: { text: "⬇️", key: m.key }
     });
 
-    await new Promise(r => setTimeout(r, 600));
+    await new Promise(r => setTimeout(r, 500));
 
-    // ⬆️ Uploading
     await conn.sendMessage(from, {
       react: { text: "⬆️", key: m.key }
     });
@@ -153,19 +129,17 @@ cmd({
       }, { quoted: m });
 
     } else if (text === "2") {
-
       await conn.sendMessage(from, {
         audio: { url: media.url },
         mimetype: "audio/mp4"
       }, { quoted: m });
     }
 
-    // ✔️ Sent
     await conn.sendMessage(from, {
       react: { text: "✔️", key: m.key }
     });
 
-  } catch (e) {
-    console.error("*Error*:", e);
+  } catch (err) {
+    console.error("LISTENER ERROR:", err);
   }
 });
