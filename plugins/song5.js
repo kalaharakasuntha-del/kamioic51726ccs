@@ -27,8 +27,8 @@ END:VCARD`,
 // Command
 cmd(
   {
-    pattern: "song4",
-    alias: ["play4"],
+    pattern: "song5",
+    alias: ["play5"],
     react: "🎵",
     desc: "Download YouTube song (Audio) via Nekolabs API",
     category: "download",
