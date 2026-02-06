@@ -1,174 +1,138 @@
+const axios = require("axios");
 const { cmd } = require('../command');
-const axios = require('axios');
-
-// Fake ChatGPT vCard
-const fakevCard = {
-    key: {
-        fromMe: false,
-        participant: "0@s.whatsapp.net",
-        remoteJid: "status@broadcast"
-    },
-    message: {
-        contactMessage: {
-            displayName: "© Ranumitha",
-            vcard: `BEGIN:VCARD
-VERSION:3.0
-FN:RANUMITHA
-ORG:RANUMITHA-X-MD;
-TEL;type=CELL;type=VOICE;waid=null:null
-END:VCARD`
-        }
-    }
-};
 
 cmd({
-    pattern: "tiktok",
-    alias: ["ttdl", "tt", "tiktokdl"],
-    desc: "Download TikTok video with full details and numbered options",
-    category: "downloader",
-    react: "🎥",
-    filename: __filename
-}, async (conn, mek, m, { from, q, reply }) => {
-    try {
-        // ✅ Get TikTok link from command or replied message
-        let tiktokUrl = q?.trim();
-        if (!tiktokUrl && mek?.quoted) {
-            tiktokUrl =
-                mek.quoted.message?.conversation ||
-                mek.quoted.message?.extendedTextMessage?.text ||
-                mek.quoted.text;
-        }
-
-        if (!tiktokUrl || !tiktokUrl.includes("tiktok.com")) {
-            return reply("⚠️ Please provide a valid TikTok link (or reply to a message).");
-        }
-
-        await conn.sendMessage(from, { react: { text: '🎥', key: mek.key } });
-
-        // ✅ Fetch TikTok info
-        const apiUrl = `https://delirius-apiofc.vercel.app/download/tiktok?url=${encodeURIComponent(tiktokUrl)}`;
-        const { data } = await axios.get(apiUrl);
-
-        if (!data.status || !data.data) return reply("❌ Failed to fetch TikTok video.");
-
-        const { title, author, like, comment, share, meta } = data.data;
-
-        const videoNoWatermark = meta.media.find(v => v.type === "video")?.org;
-        const videoWithWatermark = meta.media.find(v => v.type === "video")?.wm || videoNoWatermark;
-        const audioUrl = meta.music?.playUrl || videoNoWatermark;
-        const musicTitle = meta.music?.title || "Original Sound";
-        const duration = meta.duration || "Unknown";
-        const thumbnail = meta.media.find(v => v.type === "video")?.cover || 
-                         "https://raw.githubusercontent.com/Ranumithaofc/RANU-FILE-S-/refs/heads/main/images/RANUMITHA-X-MD%20TIKTOK%20LOGO.jpg";
-
-        // 1️⃣ Send menu with full details and video thumbnail
-        const caption = `*🍇 RANUMITHA-X-MD TIKTOK DOWNLOADER 🍇*
-
-👤 \`User:\` ${author.nickname}
-📖 \`Title:\` ${title}
-⏱️ \`Duration:\` ${duration}
-🎵 \`Music:\` ${musicTitle}
-👍 \`Likes:\` ${like} 
-💬 \`Comments:\` ${comment} 
-🔁 \`Shares:\` ${share}
-🔗 \`Link:\` ${tiktokUrl}
-
-💬 *Reply with your choice:*
-
-1️⃣ No Watermark 🎟️
-2️⃣ With Watermark 🎫
-3️⃣ Audio Only 🎶
-
-> © Powered by 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝗗 🌛`;
-
-        const sentMsg = await conn.sendMessage(from, {
-            image: { url: thumbnail },
-            caption: caption
-        }, { quoted: fakevCard });
-
-        const menuMessageID = sentMsg.key.id;
-
-        // Create a one-time listener for this specific menu
-        const replyHandler = async (msgData) => {
-            const receivedMsg = msgData.messages[0];
-            if (!receivedMsg?.message) return;
-
-            const receivedText = receivedMsg.message.conversation || 
-                                receivedMsg.message.extendedTextMessage?.text ||
-                                receivedMsg.message.extendedTextMessage?.text;
-            const senderID = receivedMsg.key.remoteJid;
-            const isReplyToMenu = receivedMsg.message.extendedTextMessage?.contextInfo?.stanzaId === menuMessageID;
-
-            if (isReplyToMenu && senderID === from) {
-                // Remove listener after receiving reply
-                conn.ev.off("messages.upsert", replyHandler);
-
-                let mediaUrl, isAudio = false, captionText;
-
-                switch (receivedText.trim()) {
-                    case "1":
-                        mediaUrl = videoNoWatermark;
-                        captionText = `*TikTok Video (No Watermark)* 🫧\n\n👤 *User:* ${author.nickname}\n📖 *Title:* ${title}\n⏱️ *Duration:* ${duration}`;
-                        break;
-                    case "2":
-                        mediaUrl = videoWithWatermark;
-                        captionText = `*TikTok Video (With Watermark)* 🫧\n\n👤 *User:* ${author.nickname}\n📖 *Title:* ${title}\n⏱️ *Duration:* ${duration}`;
-                        break;
-                    case "3":
-                        mediaUrl = audioUrl;
-                        isAudio = true;
-                        captionText = `*TikTok Audio* 🎶\n\n👤 *User:* ${author.nickname}\n🎵 *Music:* ${musicTitle}\n⏱️ *Duration:* ${duration}`;
-                        break;
-                    default:
-                        return conn.sendMessage(from, { 
-                            text: "*❌ Invalid option! Please reply with 1, 2, or 3.*" 
-                        }, { quoted: receivedMsg });
-                }
-
-                // ⬇️ React when download starts
-                await conn.sendMessage(from, { react: { text: '⬇️', key: receivedMsg.key } });
-
-                try {
-                    if (isAudio) {
-                        await conn.sendMessage(from, {
-                            audio: { url: mediaUrl },
-                            mimetype: "audio/mp4",
-                            ptt: false,
-                            caption: captionText
-                        }, { quoted: receivedMsg });
-                    } else {
-                        // Video eke thumbnail ekak set karanna
-                        await conn.sendMessage(from, {
-                            video: { url: mediaUrl },
-                            mimetype: "video/mp4",
-                            caption: captionText,
-                            jpegThumbnail: thumbnail ? await (await axios.get(thumbnail, { responseType: 'arraybuffer' })).data : undefined
-                        }, { quoted: receivedMsg });
-                    }
-
-                    // ✅ React after upload complete
-                    await conn.sendMessage(from, { react: { text: '✅', key: receivedMsg.key } });
-
-                } catch (error) {
-                    console.error("Error sending media:", error);
-                    await conn.sendMessage(from, { react: { text: '❌', key: receivedMsg.key } });
-                    conn.sendMessage(from, { 
-                        text: "*❌ Failed to send media. Please try again.*" 
-                    }, { quoted: receivedMsg });
-                }
-            }
-        };
-
-        // Set timeout to remove listener after 60 seconds
-        setTimeout(() => {
-            conn.ev.off("messages.upsert", replyHandler);
-        }, 60000);
-
-        // Add the listener
-        conn.ev.on("messages.upsert", replyHandler);
-
-    } catch (e) {
-        console.error("TikTok plugin error:", e);
-        reply("*❌ Error downloading TikTok video.*");
+  pattern: "tiktok",
+  alias: ["tt"],
+  desc: "Download TikTok videos",
+  category: "download",
+  filename: __filename
+}, async (conn, m, store, { from, quoted, q, reply }) => {
+  try {
+    if (!q || !q.startsWith("https://")) {
+      return conn.sendMessage(from, { text: "❌ Please provide a valid TikTok URL." }, { quoted: m });
     }
+
+    // ආරම්භක reaction
+    await conn.sendMessage(from, { react: { text: '⏳', key: m.key } });
+
+    // ⬇️ බාගත කිරීම ආරම්භ වූ විට
+    await conn.sendMessage(from, { react: { text: '⬇️', key: m.key } });
+
+    // ✅ Using NexOracle TikTok API
+    const response = await axios.get(`https://api-aswin-sparky.koyeb.app/api/downloader/tiktok?url=${q}`);
+    const data = response.data;
+
+    if (!data || !data.status) {
+      return reply("⚠️ Failed to retrieve TikTok media. Please check the link and try again.");
+    }
+    
+    const dat = data.data;
+    
+    const caption = `
+📺 Tiktok Downloader. 📥
+
+📑 *Title:* ${dat.title || "No title"}
+⏱️ *Duration:* ${dat.duration || "N/A"}
+👍 *Likes:* ${dat.view || "0"}
+💬 *Comments:* ${dat.comment || "0"}
+🔁 *Shares:* ${dat.share || "0"}
+📥 *Downloads:* ${dat.download || "0"}
+
+🔢 *Reply Below Number*
+
+1️⃣  *HD Quality* 🔋
+2️⃣  *SD Quality* 📱
+3️⃣  *Audio (MP3)* 🎶
+
+> Powered by 𝙳𝙰𝚁𝙺-𝙺𝙽𝙸𝙶𝙷𝚃-𝚇𝙼𝙳`;
+
+    const sentMsg = await conn.sendMessage(from, {
+      image: { url: dat.thumbnail },
+      caption
+    }, { quoted: m });
+
+    const messageID = sentMsg.key.id;
+
+    // තොරතුරු ලැබුණු reaction
+    await conn.sendMessage(from, { react: { text: '✅', key: m.key } });
+
+    // 🧠 Handle reply selector
+    conn.ev.on("messages.upsert", async (msgData) => {
+      const receivedMsg = msgData.messages[0];
+      if (!receivedMsg?.message) return;
+
+      const receivedText = receivedMsg.message.conversation || receivedMsg.message.extendedTextMessage?.text;
+      const senderID = receivedMsg.key.remoteJid;
+      const isReplyToBot = receivedMsg.message.extendedTextMessage?.contextInfo?.stanzaId === messageID;
+
+      if (isReplyToBot) {
+        // 🚫 REMOVED: පිළිතුරක් ලැබුණු reaction (🔄 අයින් කරලා)
+
+        switch (receivedText.trim()) {
+          case "1":
+            // ⬆️ HD Quality උඩුගත කිරීම ආරම්භ වූ විට
+            await conn.sendMessage(senderID, { react: { text: '⬆️', key: receivedMsg.key } });
+            
+            // HD Quality
+            await conn.sendMessage(senderID, {
+              video: { url: dat.video },
+              caption: "📥 *Downloaded HD Quality*"
+            }, { quoted: receivedMsg });
+            
+            // ✔️ සාර්ථකව යැවූ විට
+            await conn.sendMessage(senderID, { react: { text: '✔️', key: receivedMsg.key } });
+            break;
+
+          case "2":
+            // ⬆️ SD Quality උඩුගත කිරීම ආරම්භ වූ විට
+            await conn.sendMessage(senderID, { react: { text: '⬆️', key: receivedMsg.key } });
+            
+            // SD Quality
+            try {
+              const sdUrl = dat.sd_video || dat.video || dat.video_url;
+              await conn.sendMessage(senderID, {
+                video: { url: sdUrl },
+                caption: "📥 *Downloaded SD Quality*"
+              }, { quoted: receivedMsg });
+            } catch (sdError) {
+              await conn.sendMessage(senderID, {
+                video: { url: dat.video },
+                caption: "📥 *Downloaded Available Quality (HD)*"
+              }, { quoted: receivedMsg });
+            }
+            
+            // ✔️ සාර්ථකව යැවූ විට
+            await conn.sendMessage(senderID, { react: { text: '✔️', key: receivedMsg.key } });
+            break;
+
+          case "3":
+            // ⬆️ Audio උඩුගත කිරීම ආරම්භ වූ විට
+            await conn.sendMessage(senderID, { react: { text: '⬆️', key: receivedMsg.key } });
+            
+            // Audio MP3
+            await conn.sendMessage(senderID, {
+              audio: { url: dat.audio },
+              mimetype: "audio/mp3",
+              ptt: false
+            }, { quoted: receivedMsg });
+            
+            // ✔️ සාර්ථකව යැවූ විට
+            await conn.sendMessage(senderID, { react: { text: '✔️', key: receivedMsg.key } });
+            break;
+
+          default:
+            // ❌ වැරදි තේරීමක් සඳහා
+            await conn.sendMessage(senderID, { react: { text: '❌', key: receivedMsg.key } });
+            reply("❌ Invalid option! Please reply with 1, 2 or 3.");
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error("TikTok Plugin Error:", error);
+    // ❌ දෝෂයක් සිදුවු විට
+    await conn.sendMessage(from, { react: { text: '❌', key: m.key } });
+    reply("❌ An error occurred while processing your request. Please try again later.");
+  }
 });
