@@ -59,237 +59,134 @@ cmd({
         const data = search.videos[0];
         const ytUrl = data.url;
 
-        // 5️⃣ Send selection menu (image + caption)
+        // 4️⃣ Create selection menu caption
         const caption = `
 *📽️ RANUMITHA-X-MD VIDEO DOWNLOADER 🎥*
 
-*🎵 \`Title:\`* ${data.title}
-*⏱️ \`Duration:\`* ${data.timestamp}
-*📆 \`Uploaded:\`* ${data.ago}
-*📊 \`Views:\`* ${data.views}
-*🔗 \`Link:\`* ${data.url}
+*🎵 Title:* ${data.title}
+*⏱️ Duration:* ${data.timestamp}
+*📆 Uploaded:* ${data.ago}
+*📊 Views:* ${data.views}
+*🔗 Link:* ${data.url}
 
-🔢 *Reply Below Number*
+*🔢 Reply Below Number*
 
 1. *Video FILE 📽️*
-   1.1 240p Qulity 📽️
-   1.2 360p Qulity 📽️
-   1.3 480p Qulity 📽️
-   1.4 720p Qulity 📽️
+   1.1 240p Quality 📽️
+   1.2 360p Quality 📽️
+   1.3 480p Quality 📽️
+   1.4 720p Quality 📽️
+   1.5 1080p Quality 📽️
 
 2. *Document FILE 📂*
-   2.1 240p Qulity 📂
-   2.2 360p Qulity 📂
-   2.3 480p Qulity 📂
-   2.4 720p Qulity 📂
-
-3. *WhatsApp Compatible Video 🎬*
-   3.1 WA Compatible 360p
-   3.2 WA Compatible 480p
-   3.3 WA Compatible 720p
+   2.1 240p Quality 📂
+   2.2 360p Quality 📂
+   2.3 480p Quality 📂
+   2.4 720p Quality 📂
+   2.5 1080p Quality 📂
 
 > © Powered by 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝗗 🌛`;
 
-        const sentMsg = await conn.sendMessage(from, {
+        // Send selection menu
+        await conn.sendMessage(from, {
             image: { url: data.thumbnail },
             caption
         }, { quoted: fakevCard });
 
-        const messageID = sentMsg.key.id;
+        // Create a listener for user response
+        const listener = async (msg) => {
+            try {
+                const receivedMsg = msg.messages[0];
+                if (!receivedMsg?.message || receivedMsg.key.remoteJid !== from) return;
 
-        // 6️⃣ Listen for user replies
-        conn.ev.on("messages.upsert", async (msgData) => {
-            const receivedMsg = msgData.messages[0];
-            if (!receivedMsg?.message) return;
+                const receivedText = receivedMsg.message.conversation || 
+                                   receivedMsg.message.extendedTextMessage?.text;
+                
+                if (!receivedText) return;
 
-            const receivedText =
-                receivedMsg.message.conversation ||
-                receivedMsg.message.extendedTextMessage?.text;
-
-            const senderID = receivedMsg.key.remoteJid;
-            const isReplyToBot =
-                receivedMsg.message.extendedTextMessage?.contextInfo?.stanzaId === messageID;
-
-            if (isReplyToBot) {
-                let selectedFormat, isDocument = false, isWhatsAppCompatible = false;
-
-                switch (receivedText.trim().toUpperCase()) {
+                let selectedFormat, isDocument = false;
+                
+                // Check which option was selected
+                switch (receivedText.trim()) {
                     case "1.1": selectedFormat = "240p"; break;
                     case "1.2": selectedFormat = "360p"; break;
                     case "1.3": selectedFormat = "480p"; break;
                     case "1.4": selectedFormat = "720p"; break;
+                    case "1.5": selectedFormat = "1080p"; break;
                     case "2.1": selectedFormat = "240p"; isDocument = true; break;
                     case "2.2": selectedFormat = "360p"; isDocument = true; break;
                     case "2.3": selectedFormat = "480p"; isDocument = true; break;
                     case "2.4": selectedFormat = "720p"; isDocument = true; break;
-                    case "3.1": selectedFormat = "360p"; isWhatsAppCompatible = true; break;
-                    case "3.2": selectedFormat = "480p"; isWhatsAppCompatible = true; break;
-                    case "3.3": selectedFormat = "720p"; isWhatsAppCompatible = true; break;
-                    default:
-                        return reply("*❌ Invalid option!*");
+                    case "2.5": selectedFormat = "1080p"; isDocument = true; break;
+                    default: return;
                 }
 
-                // React ⬇️ when download starts
-                await conn.sendMessage(senderID, { react: { text: '⬇️', key: receivedMsg.key } });
+                // Remove listener after receiving response
+                conn.ev.off('messages.upsert', listener);
 
-                if (isWhatsAppCompatible) {
-                    // WhatsApp Compatible API භාවිතා කරන්න
-                    try {
-                        // WhatsApp Compatible API URL (කුඩා file size සහ compatible codec සමග)
-                        const whatsappUrl = `https://api.vevioz.com/api/button/mp4/${ytUrl.split('v=')[1]}`;
-                        
-                        const { data: whatsappRes } = await axios.get(whatsappUrl);
-                        
-                        if (!whatsappRes || !whatsappRes[selectedFormat.replace('p', '')]) {
-                            throw new Error("WhatsApp API failed");
-                        }
-                        
-                        const downloadUrl = whatsappRes[selectedFormat.replace('p', '')];
-                        
-                        // React ⬆️ before uploading
-                        await conn.sendMessage(senderID, { react: { text: '⬆️', key: receivedMsg.key } });
-                        
-                        // WhatsApp සඳහා optimized metadata සමග send කරන්න
-                        await conn.sendMessage(senderID, {
-                            video: { 
-                                url: downloadUrl 
-                            },
-                            mimetype: "video/mp4",
-                            caption: `*${data.title}*\n📊 Quality: ${selectedFormat}\n✅ WhatsApp Compatible`,
-                            // WhatsApp වීඩියෝ සඳහා required parameters
-                            ptt: false,
-                            gifPlayback: false,
-                            // සුළු file size සහිතව
-                            fileLength: 104857600, // 100MB max
-                            seconds: data.duration.seconds || 300
-                        }, { quoted: receivedMsg });
-                        
-                        // React ✅ after upload complete
-                        await conn.sendMessage(senderID, { react: { text: '✔️', key: receivedMsg.key } });
-                        
-                    } catch (whatsappError) {
-                        console.error("WhatsApp API Error:", whatsappError);
-                        // Backup API භාවිතා කරන්න
-                        await conn.sendMessage(senderID, { react: { text: '🔄', key: receivedMsg.key } });
-                        
-                        // Fallback to regular API with WhatsApp compatible settings
-                        const backupUrl = `https://sadiya-tech-apis.vercel.app/download/ytdl?url=${encodeURIComponent(ytUrl)}&format=${selectedFormat.replace('p', '')}&apikey=YOU_API_KEY`;
-                        
-                        const { data: backupRes } = await axios.get(backupUrl);
-                        
-                        if (!backupRes?.status || !backupRes.result?.download) {
-                            await conn.sendMessage(senderID, { react: { text: '❌', key: receivedMsg.key } });
-                            return reply(`❌ Unable to download WhatsApp compatible ${selectedFormat} version.`);
-                        }
-                        
-                        const result = backupRes.result;
-                        
-                        // React ⬆️ before uploading
-                        await conn.sendMessage(senderID, { react: { text: '⬆️', key: receivedMsg.key } });
-                        
-                        await conn.sendMessage(senderID, {
-                            video: { url: result.download },
-                            mimetype: "video/mp4",
-                            caption: `*${data.title}*\n📊 Quality: ${selectedFormat}\n⏱️ Duration: ${data.timestamp}`,
-                            ptt: false,
-                            gifPlayback: false
-                        }, { quoted: receivedMsg });
-                        
-                        // React ✅ after upload complete
-                        await conn.sendMessage(senderID, { react: { text: '✔️', key: receivedMsg.key } });
-                    }
-                    
-                } else if (receivedText.trim().toUpperCase() === "1.2" || receivedText.trim().toUpperCase() === "2.2") {
-                    // Ominisave API භාවිතා කරන්න
-                    const ominisaveUrl = `https://ominisave.vercel.app/api/ytmp4?url=${encodeURIComponent(ytUrl)}`;
-                    
-                    try {
-                        const { data: apiRes } = await axios.get(ominisaveUrl);
-                        
-                        if (!apiRes?.status || !apiRes.result?.url) {
-                            await conn.sendMessage(senderID, { react: { text: '❌', key: receivedMsg.key } });
-                            return reply(`❌ Ominisave API failed. Try another option!`);
-                        }
-                        
-                        const downloadUrl = apiRes.result.url;
-                        const filename = apiRes.result.filename || `${data.title}.mp4`;
-                        
-                        // React ⬆️ before uploading
-                        await conn.sendMessage(senderID, { react: { text: '⬆️', key: receivedMsg.key } });
-                        
-                        if (isDocument) {
-                            await conn.sendMessage(senderID, {
-                                document: { url: downloadUrl },
-                                mimetype: "video/mp4",
-                                fileName: filename
-                            }, { quoted: receivedMsg });
-                        } else {
-                            await conn.sendMessage(senderID, {
-                                video: { url: downloadUrl },
-                                mimetype: "video/mp4",
-                                caption: `*${data.title}*\n📊 Quality: ${selectedFormat}\n⏱️ Duration: ${data.timestamp}`,
-                                ptt: false,
-                                gifPlayback: false
-                            }, { quoted: receivedMsg });
-                        }
-                        
-                        // React ✅ after upload complete
-                        await conn.sendMessage(senderID, { react: { text: '✔️', key: receivedMsg.key } });
-                        
-                    } catch (error) {
-                        console.error("Ominisave API Error:", error);
-                        await conn.sendMessage(senderID, { react: { text: '❌', key: receivedMsg.key } });
-                        return reply("❌ Error downloading from Ominisave API.");
-                    }
+                // React with downloading emoji
+                await conn.sendMessage(from, { 
+                    react: { text: '⬇️', key: receivedMsg.key } 
+                });
+
+                // Use omnisave API
+                const apiUrl = `https://ominisave.vercel.app/api/ytmp4?url=${encodeURIComponent(ytUrl)}`;
+                
+                const { data: apiRes } = await axios.get(apiUrl);
+                
+                if (!apiRes?.status || !apiRes.result?.url) {
+                    await conn.sendMessage(from, { 
+                        react: { text: '❌', key: receivedMsg.key } 
+                    });
+                    return reply("❌ Unable to download video. Please try again later.");
+                }
+
+                // Get video URL from API response
+                const videoUrl = apiRes.result.url;
+                const filename = apiRes.result.filename || `${data.title}.mp4`;
+
+                // React with uploading emoji
+                await conn.sendMessage(from, { 
+                    react: { text: '⬆️', key: receivedMsg.key } 
+                });
+
+                // Send as document or video
+                if (isDocument) {
+                    await conn.sendMessage(from, {
+                        document: { url: videoUrl },
+                        mimetype: "video/mp4",
+                        fileName: filename,
+                        caption: `📥 *Downloaded Successfully!*\n📹 *Title:* ${data.title}\n📦 *Sent as:* Document`
+                    }, { quoted: receivedMsg });
                 } else {
-                    // අනෙක් quality වලට පැරණි API එකම භාවිතා කරන්න
-                    try {
-                        const formats = {
-                            "240p": `https://sadiya-tech-apis.vercel.app/download/ytdl?url=${encodeURIComponent(ytUrl)}&format=240&apikey=YOU_API_KEY`,
-                            "360p": `https://sadiya-tech-apis.vercel.app/download/ytdl?url=${encodeURIComponent(ytUrl)}&format=360&apikey=YOU_API_KEY`,
-                            "480p": `https://sadiya-tech-apis.vercel.app/download/ytdl?url=${encodeURIComponent(ytUrl)}&format=480&apikey=YOU_API_KEY`,
-                            "720p": `https://sadiya-tech-apis.vercel.app/download/ytdl?url=${encodeURIComponent(ytUrl)}&format=720&apikey=YOU_API_KEY`
-                        };
-
-                        const { data: apiRes } = await axios.get(formats[selectedFormat]);
-
-                        if (!apiRes?.status || !apiRes.result?.download) {
-                            await conn.sendMessage(senderID, { react: { text: '❌', key: receivedMsg.key } });
-                            return reply(`❌ Unable to download the ${selectedFormat} version. Try another one!`);
-                        }
-
-                        const result = apiRes.result;
-
-                        // React ⬆️ before uploading
-                        await conn.sendMessage(senderID, { react: { text: '⬆️', key: receivedMsg.key } });
-
-                        if (isDocument) {
-                            await conn.sendMessage(senderID, {
-                                document: { url: result.download },
-                                mimetype: "video/mp4",
-                                fileName: `${data.title} - ${selectedFormat}.mp4`
-                            }, { quoted: receivedMsg });
-                        } else {
-                            await conn.sendMessage(senderID, {
-                                video: { url: result.download },
-                                mimetype: "video/mp4",
-                                caption: `*${data.title}*\n📊 Quality: ${selectedFormat}\n⏱️ Duration: ${data.timestamp}`,
-                                ptt: false,
-                                gifPlayback: false
-                            }, { quoted: receivedMsg });
-                        }
-
-                        // React ✅ after upload complete
-                        await conn.sendMessage(senderID, { react: { text: '✔️', key: receivedMsg.key } });
-                        
-                    } catch (error) {
-                        console.error("API Error:", error);
-                        await conn.sendMessage(senderID, { react: { text: '❌', key: receivedMsg.key } });
-                        return reply("❌ An error occurred while downloading.");
-                    }
+                    await conn.sendMessage(from, {
+                        video: { url: videoUrl },
+                        mimetype: "video/mp4",
+                        caption: `📥 *Downloaded Successfully!*\n📹 *Title:* ${data.title}`
+                    }, { quoted: receivedMsg });
                 }
+
+                // React with success emoji
+                await conn.sendMessage(from, { 
+                    react: { text: '✅', key: receivedMsg.key } 
+                });
+
+            } catch (error) {
+                console.error("Download error:", error);
+                await conn.sendMessage(from, { 
+                    react: { text: '❌', key: msg.messages[0].key } 
+                });
+                reply("❌ Error downloading video. Please try again.");
             }
-        });
+        };
+
+        // Add listener for user response
+        conn.ev.on('messages.upsert', listener);
+
+        // Set timeout to remove listener after 60 seconds
+        setTimeout(() => {
+            conn.ev.off('messages.upsert', listener);
+        }, 60000);
 
     } catch (error) {
         console.error("Video Command Error:", error);
