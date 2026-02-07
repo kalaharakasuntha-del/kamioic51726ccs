@@ -1,26 +1,21 @@
 const { cmd } = require('../command');
 const axios = require('axios');
 
-// Fake AI vCard
-const fakevCard = {
-    key: {
+// Fake VCard
+        const FakeVCard = {
+      key: {
         fromMe: false,
         participant: "0@s.whatsapp.net",
         remoteJid: "status@broadcast"
-    },
-    message: {
+      },
+      message: {
         contactMessage: {
-            displayName: "© Mr Hiruka",
-            vcard: `BEGIN:VCARD
-VERSION:3.0
-FN:Meta
-ORG:META AI;
-TEL;type=CELL;type=VOICE;waid=+13135550002:+13135550002
-END:VCARD`
+          displayName: "© Mr Hiruka",
+          vcard: `BEGIN:VCARD\nVERSION:3.0\nFN:Meta\nORG:META AI;\nTEL;type=CELL;type=VOICE;waid=13135550002:+13135550002\nEND:VCARD`
         }
-    }
-};
-
+      }
+    };
+        
 cmd({
     pattern: "copilot",
     alias: ["ai1"],
