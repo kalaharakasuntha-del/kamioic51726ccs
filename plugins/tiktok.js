@@ -13,22 +13,21 @@ cmd(
 
   async (conn, mek, m, { from, q, reply }) => {
     try {
-// ✅ Get TikTok link from command OR replied message
-let tiktokUrl = q?.trim();
+// URL get (text or reply)
+let url = q;
 
-if (!tiktokUrl && m?.quoted) {
-  tiktokUrl =
-    m.quoted.message?.conversation ||
-    m.quoted.message?.extendedTextMessage?.text ||
-    m.quoted.text;
+if (!url && quoted) {
+  url = quoted.text || quoted.caption || "";
 }
 
-// ❌ Invalid link check
-if (!tiktokUrl || !tiktokUrl.includes("tiktok.com")) {
-  return reply(
-    "⚠️ Valid TikTok link ekak denna (naththam TikTok link ekakata reply karanna)."
-  );
+if (!url || !url.startsWith("http")) {
+  return reply("❌ Valid TikTok URL ekak denna.");
 }
+
+// ⏳ react
+await conn.sendMessage(from, {
+  react: { text: "⏳", key: mek.key },
+});
 
       const { data } = await axios.get(
         `https://api-aswin-sparky.koyeb.app/api/downloader/tiktok?url=${encodeURIComponent(
