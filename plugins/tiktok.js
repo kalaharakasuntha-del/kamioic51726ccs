@@ -13,21 +13,22 @@ cmd(
 
   async (conn, mek, m, { from, q, reply }) => {
     try {
-  // ✅ Get TikTok link from command OR replied message
-      let tiktokUrl = q?.trim();
-      if (!tiktokUrl && m?.quoted) {
-        tiktokUrl =
-          m.quoted.message?.conversation ||
-          m.quoted.message?.extendedTextMessage?.text ||
-          m.quoted.text;
-      }
+// ✅ Get TikTok link from command OR replied message
+let tiktokUrl = q?.trim();
 
-      // ❌ Invalid link
-      if (!tiktokUrl || !tiktokUrl.includes("tiktok.com")) {
-        return reply(
-          "⚠️ Valid TikTok link ekak denna (naththam link ekakata reply karanna)."
-        );
-      }
+if (!tiktokUrl && m?.quoted) {
+  tiktokUrl =
+    m.quoted.message?.conversation ||
+    m.quoted.message?.extendedTextMessage?.text ||
+    m.quoted.text;
+}
+
+// ❌ Invalid link check
+if (!tiktokUrl || !tiktokUrl.includes("tiktok.com")) {
+  return reply(
+    "⚠️ Valid TikTok link ekak denna (naththam TikTok link ekakata reply karanna)."
+  );
+}
 
       const { data } = await axios.get(
         `https://api-aswin-sparky.koyeb.app/api/downloader/tiktok?url=${encodeURIComponent(
@@ -49,7 +50,7 @@ cmd(
 👍 \`Likes:\` ${dat.view || "0"} 
 💬 \`Comments:\` ${dat.comment || "0"}
 🔁 \`Shares:\` ${dat.share || "0"}
-🔗 \`Link:\` ${q}
+🔗 \`Link:\` ${tiktokUrl}
 
 💬 *Reply with your choice:*
 
