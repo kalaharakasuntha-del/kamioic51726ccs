@@ -170,14 +170,12 @@ cmd(
       const caption = `
 *🍇 RANUMITHA-X-MD TIKTOK DOWNLOADER 🍇*
 
-👤 \`User:\` ${author.nickname}
-📖 \`Title:\` ${title}
-⏱️ \`Duration:\` ${duration}
-🎵 \`Music:\` ${musicTitle}
-👍 \`Likes:\` ${like} 
-💬 \`Comments:\` ${comment} 
-🔁 \`Shares:\` ${share}
-🔗 \`Link:\` ${tiktokUrl}
+📖 \`Title:\` ${title || "No title"}
+⏱️ \`Duration:\` ${duration || "N/A"}s
+👍 \`Likes:\` ${metrics?.digg_count?.toLocaleString() || "0"}
+💬 \`Comments:\` ${metrics?.comment_count?.toLocaleString() || "0"}
+🔁 \`Shares:\` ${metrics?.share_count?.toLocaleString() || "0"}
+🔗 \`Link:\` ${q}
 
 💬 *Reply with your choice:*
 
@@ -270,4 +268,3 @@ cmd(
     }
   }
 );
-
