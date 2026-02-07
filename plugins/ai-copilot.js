@@ -42,8 +42,20 @@ async (conn, mek, m, { from, q, react }) => {
         m.quoted.text;
     }
 
-    // ❌ If still empty
-    if (!userText) return;
+    // ❌ If no text provided
+    if (!userText) {
+      return conn.sendMessage(
+        from,
+        {
+          text: `🧠 *Please provide a message for the AI.*
+
+📌 Example:
+• \`.copilot Hello\`
+• Reply to a message and type \`.copilot\``
+        },
+        { quoted: m }
+      );
+    }
 
     const apiUrl = `https://malvin-api.vercel.app/ai/copilot?text=${encodeURIComponent(userText)}`;
     const { data } = await axios.get(apiUrl);
@@ -67,6 +79,6 @@ ${data.result}
     await react("✅");
 
   } catch (e) {
-    console.log("Copilot error ignored");
+    console.log("Copilot error:", e.message);
   }
 });
