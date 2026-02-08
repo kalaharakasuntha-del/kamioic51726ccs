@@ -43,7 +43,7 @@ const {
   const path = require('path')
   const prefix = config.PREFIX
 
-const ownerNumber = ('94762095304');
+const ownerNumber = ('94762095304', '94705349577');
 
 const tempDir = path.join(os.tmpdir(), 'cache-temp')
 if (!fs.existsSync(tempDir)) {
