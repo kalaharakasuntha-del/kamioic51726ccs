@@ -21,10 +21,9 @@ END:VCARD`
     }
 };
 
-
 cmd({
     pattern: "gpt",
-    alias: [ "chatgpt", "openai", "ai2" ],
+    alias: ["chatgpt", "openai", "ai2"],
     desc: "Chat with GPT AI",
     category: "ai",
     react: "🤖",
@@ -33,11 +32,34 @@ cmd({
 async (conn, mek, m, { from, q, reply, react }) => {
     try {
 
-        if (!q) {
-            return reply("🧠 Please provide a message.\nExample: `.gpt Hello`");
+        // ✅ Get text from command OR replied message
+        let userText = q?.trim();
+
+        if (!userText && m?.quoted) {
+            userText =
+                m.quoted.message?.conversation ||
+                m.quoted.message?.extendedTextMessage?.text ||
+                m.quoted.text;
         }
 
-        const apiUrl = `https://malvin-api.vercel.app/ai/gpt-5?text=${encodeURIComponent(q)}`;
+        // ❌ If no text provided
+        if (!userText) {
+            return conn.sendMessage(
+                from,
+                {
+                    text: `🧠 *Please provide a message for the AI.*
+
+📌 Example:
+• .gpt \`Hello\`
+• Reply to a message and type \`.gpt\``
+                },
+                { quoted: m }
+            );
+        }
+
+        const apiUrl = `https://malvin-api.vercel.app/ai/gpt-5?text=${encodeURIComponent(userText)}`;
+
+        await react("⏳");
 
         const { data } = await axios.get(apiUrl);
 
@@ -51,9 +73,9 @@ async (conn, mek, m, { from, q, reply, react }) => {
 ━━━━━━━━━━━━━━━
 ${data.result}
 
-> © Powerd by 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝗗 🌛`.trim();
+> © Powered by 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝗗 🌛`.trim();
 
-        // ✅ Reply wela send karana thanama
+        // ✅ Send reply with fake vCard
         await conn.sendMessage(
             from,
             { text: responseMsg },
