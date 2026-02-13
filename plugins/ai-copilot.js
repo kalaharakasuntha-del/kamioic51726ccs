@@ -23,7 +23,7 @@ END:VCARD`
 
 cmd({
   pattern: "copilot",
-  alias: [ "ai" "ai1" ],
+  alias: [ "ai", "ai1" ],
   desc: "Chat with an AI model",
   category: "ai",
   react: "🤖",
