@@ -1,7 +1,6 @@
 const { cmd } = require('../command');
 const { getBuffer } = require('../lib/functions');
 
-// Fake vCard
 const fakevCard = {
     key: {
         fromMe: false,
@@ -24,7 +23,7 @@ END:VCARD`
 cmd({
   pattern: "gid",
   alias: ["groupid"],
-  react: "🖼️",
+  react: "🔎",
   desc: "Get Group info from invite link",
   category: "whatsapp",
   filename: __filename
@@ -41,45 +40,43 @@ cmd({
 
     const inviteCode = match[1];
 
-    // Get invite info
+    // ✅ Only use invite info (SAFE)
     const inviteInfo = await conn.groupGetInviteInfo(inviteCode);
 
-    if (!inviteInfo?.id) {
-      return reply("Group not found.");
-    }
-
-    const groupJid = inviteInfo.id;
-
-    // 🔥 IMPORTANT: Get full metadata using JID
-    const metadata = await conn.groupMetadata(groupJid);
+    if (!inviteInfo?.id) return reply("Group not found.");
 
     const text = `*「 Group Link Info 」*\n
-🔥 Name: ${metadata.subject}
-🆔 ID: ${metadata.id}
-👥 Members: ${metadata.size}
-👑 Owner: ${metadata.owner || "Unknown"}
-📃 Description: ${metadata.desc || "No description"}
-📅 Created: ${metadata.creation ? new Date(metadata.creation * 1000).toLocaleString() : "Unknown"}
+🔥 Name: ${inviteInfo.subject}
+🆔 ID: ${inviteInfo.id}
+👥 Members: ${inviteInfo.size}
+👑 Owner: ${inviteInfo.owner || "Unknown"}
+📃 Description: ${inviteInfo.desc || "No description"}
+📅 Created: ${inviteInfo.creation ? new Date(inviteInfo.creation * 1000).toLocaleString() : "Unknown"}
 
 > © Powered by 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝗗 🌛`;
 
-    // 🔥 Get profile picture (NOW WORKS)
-    let pp;
+    // 🔥 Use preview image from invite metadata
+    let imageBuffer;
+
     try {
-      const ppUrl = await conn.profilePictureUrl(groupJid, "image");
-      pp = await getBuffer(ppUrl);
+        if (inviteInfo.preview) {
+            const imgUrl = `https://pps.whatsapp.net${inviteInfo.preview}`;
+            imageBuffer = await getBuffer(imgUrl);
+        } else {
+            throw "No preview";
+        }
     } catch {
-      pp = await getBuffer("https://i.ibb.co/KhYC4FY/1221bc0bdd2354b42b293317ff2adbcf-icon.png");
+        imageBuffer = await getBuffer("https://i.ibb.co/KhYC4FY/1221bc0bdd2354b42b293317ff2adbcf-icon.png");
     }
 
     await conn.sendMessage(from, {
-      image: pp,
-      caption: text
+        image: imageBuffer,
+        caption: text
     }, { quoted: fakevCard });
 
   } catch (err) {
     console.log(err);
-    reply("Error fetching group info.");
+    reply("❌ Failed to fetch group info. Link invalid or expired.");
   }
 
 });
