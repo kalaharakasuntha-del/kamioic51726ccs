@@ -23,71 +23,68 @@ END:VCARD`
 cmd({
   pattern: "gid",
   alias: ["groupid", "grouplinkinfo"],
-  react: "🔎",
-  desc: "Get Group info from invite link",
+  react: "🖼️",
+  desc: "Get Group info + profile picture from invite link",
   category: "whatsapp",
   filename: __filename
-}, async (conn, mek, m, {
-  from,
-  q,
-  reply
-}) => {
+}, async (conn, mek, m, { from, q, reply }) => {
 
   try {
 
     if (!q) {
-      return reply("*Please provide a WhatsApp Group link.*\n\nExample:\n.gid https://chat.whatsapp.com/xxxxxxxx");
+      return reply("*Provide a WhatsApp Group link.*\n\nExample:\n.gid https://chat.whatsapp.com/xxxxxxxx");
     }
 
-    // Extract Invite Code
+    // Extract invite code
     const match = q.match(/chat\.whatsapp\.com\/([\w-]+)/);
-
     if (!match) {
-      return reply("⚠️ *Invalid group link format.*\n\nMake sure it looks like:\nhttps://chat.whatsapp.com/xxxxxxxx");
+      return reply("⚠️ Invalid group link format.");
     }
 
     const inviteCode = match[1];
 
+    // Fetch invite metadata
     let metadata;
     try {
       metadata = await conn.groupGetInviteInfo(inviteCode);
-    } catch (e) {
-      return reply("*❌ Failed to fetch group info. The link may be invalid or expired.*");
+    } catch {
+      return reply("❌ Link invalid or expired.");
     }
 
-    if (!metadata || !metadata.id) {
-      return reply("❌ Group not found or inaccessible.");
+    if (!metadata?.id) {
+      return reply("❌ Group not found.");
     }
 
-    const infoText = `*— 乂 Group Link Info —*\n\n` +
+    const text = `*— 乂 Group Link Info —*\n\n` +
       `🆔 *Group ID:* ${metadata.id}\n` +
       `📛 *Name:* ${metadata.subject}\n` +
       `📝 *Description:* ${metadata.desc || "No description"}\n` +
-      `👑 *Owner:* ${metadata.owner || "Unknown"}\n` +
       `👥 *Members:* ${metadata.size || "Unknown"}\n` +
-      `📅 *Created:* ${metadata.creation ? new Date(metadata.creation * 1000).toLocaleString("id-ID") : "Unknown"}\n\n` +
+      `📅 *Created:* ${metadata.creation ? new Date(metadata.creation * 1000).toLocaleString() : "Unknown"}\n\n` +
       `> © Powerd by 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝗗 🌛`;
 
-    // Send with group profile picture if available
-    let pp;
+    // Try get group profile picture
+    let groupPP = null;
+
     try {
-      pp = await conn.profilePictureUrl(metadata.id, "image");
+      groupPP = await conn.profilePictureUrl(metadata.id, "image");
     } catch {
-      pp = null;
+      groupPP = null;
     }
 
-    if (pp) {
+    // If profile picture exists send image
+    if (groupPP) {
       await conn.sendMessage(from, {
-        image: { url: pp },
-        caption: infoText
+        image: { url: groupPP },
+        caption: text
       }, { quoted: fakevCard });
     } else {
-      await reply(infoText);
+      await reply(text);
     }
 
-  } catch (error) {
-    console.error("❌ Error in gid plugin:", error);
-    reply("*Error fetching group link info*");
+  } catch (err) {
+    console.error("GID Error:", err);
+    reply("❌ Error fetching group info.");
   }
 
 });
