@@ -9,9 +9,8 @@
     "restart": "pm2 restart RANUMITHA-X-MD"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "npm:angularsockets",
+    "@whiskeysockets/baileys": "7.0.0-rc14",
     "@adiwajshing/keyed-db": "latest",
-    "@dark-yasiya/yt-dl.js": "1.0.5",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@vitalets/google-translate-api": "^9.2.1",
     "@dark-yasiya/scrap": "1.0.1",
