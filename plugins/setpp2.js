@@ -1,125 +1,219 @@
 const { cmd } = require("../command");
+const FormData = require("form-data");
 const axios = require("axios");
+const { downloadContentFromMessage } = require("@whiskeysockets/baileys");
 const { Jimp } = require("jimp");
+
+// Dynamic fetch
+const fetch = (...args) =>
+    import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
 cmd({
     pattern: "setpp2",
-    desc: "Set bot profile picture using image URL",
+    alias: ["setprofile", "setbotpp"],
+    desc: "Set bot profile picture from replied image",
     category: "owner",
     react: "🖼️",
     filename: __filename
 },
-async (conn, mek, m, { from, isOwner, args, reply }) => {
+async (conn, mek, m, { from, isOwner, reply }) => {
 
     if (!isOwner) {
         return reply("❌ You are not the owner!");
     }
 
-    const url = args[0];
-
-    if (!url) {
-        return reply(
-            "❌ Please provide an image URL.\n\n" +
-            "Example:\n" +
-            ".setpp https://example.com/image.jpg"
-        );
-    }
-
-    if (!/^https?:\/\/.+/i.test(url)) {
-        return reply("❌ Invalid URL!");
-    }
-
     try {
 
-        await reply("⏳ Downloading image...");
+        // =====================================================
+        // GET QUOTED MESSAGE
+        // =====================================================
 
-        // Download image
-        const response = await axios.get(url, {
-            responseType: "arraybuffer",
-            timeout: 120000,
-            maxContentLength: Infinity,
-            maxBodyLength: Infinity,
-            headers: {
-                "User-Agent": "Mozilla/5.0"
+        let msg =
+            mek.message?.extendedTextMessage?.contextInfo?.quotedMessage ||
+            mek.message;
+
+        // =====================================================
+        // VIEW ONCE FIX
+        // =====================================================
+
+        if (msg?.viewOnceMessageV2) {
+            msg = msg.viewOnceMessageV2.message;
+        } else if (msg?.viewOnceMessageV2Extension) {
+            msg = msg.viewOnceMessageV2Extension.message;
+        } else if (msg?.viewOnceMessage) {
+            msg = msg.viewOnceMessage.message;
+        }
+
+        // =====================================================
+        // FIND IMAGE
+        // =====================================================
+
+        const type = Object.keys(msg || {}).find(k =>
+            ["imageMessage"].includes(k)
+        );
+
+        if (!type) {
+            return reply(
+                "❌ Please reply to an image!"
+            );
+        }
+
+        // React
+        await conn.sendMessage(from, {
+            react: {
+                text: "⬆️",
+                key: mek.key
             }
         });
 
-        const contentType =
-            response.headers["content-type"] || "";
+        const target = msg[type];
 
-        if (!contentType.toLowerCase().startsWith("image/")) {
+        let mime = target.mimetype || "image/jpeg";
+
+        // =====================================================
+        // DOWNLOAD IMAGE
+        // =====================================================
+
+        await reply("⏳ Uploading image...");
+
+        const stream = await downloadContentFromMessage(
+            target,
+            "image"
+        );
+
+        let buffer = Buffer.from([]);
+
+        for await (const chunk of stream) {
+            buffer = Buffer.concat([
+                buffer,
+                chunk
+            ]);
+        }
+
+        if (!buffer.length) {
             return reply(
-                "❌ This URL is not a direct image URL."
+                "❌ Failed to download image!"
             );
         }
 
-        const input = Buffer.from(response.data);
+        // =====================================================
+        // UPLOAD TO YOUR WHITESHADOW UPLOADER
+        // =====================================================
 
-        if (!input.length) {
+        const form = new FormData();
+
+        form.append("file", buffer, {
+            filename: "setpp.jpg",
+            contentType: mime
+        });
+
+        const uploadResponse = await fetch(
+            "https://whiteshadow-uploader.vercel.app/api/upload",
+            {
+                method: "POST",
+                body: form,
+                headers: form.getHeaders()
+            }
+        );
+
+        const json = await uploadResponse.json();
+
+        if (
+            !json.status ||
+            !json.result?.url
+        ) {
+            console.log("Uploader response:", json);
+
             return reply(
-                "❌ Image download failed."
+                "❌ Image upload failed!"
             );
         }
 
-        await reply("🖼️ Processing image...");
+        const imageUrl = json.result.url;
 
-        // Read image using Jimp v1.x
-        const image = await Jimp.read(input);
+        console.log(
+            "Uploaded Image URL:",
+            imageUrl
+        );
+
+        // =====================================================
+        // DOWNLOAD IMAGE FROM UPLOADED URL
+        // =====================================================
+
+        await reply("🖼️ Processing profile picture...");
+
+        const imageResponse = await axios.get(
+            imageUrl,
+            {
+                responseType: "arraybuffer",
+                timeout: 120000,
+                maxContentLength: Infinity,
+                maxBodyLength: Infinity,
+                headers: {
+                    "User-Agent": "Mozilla/5.0"
+                }
+            }
+        );
+
+        const inputBuffer = Buffer.from(
+            imageResponse.data
+        );
+
+        // =====================================================
+        // JIMP PROCESSING
+        // =====================================================
+
+        const image = await Jimp.read(
+            inputBuffer
+        );
 
         const width = image.bitmap.width;
         const height = image.bitmap.height;
 
         if (!width || !height) {
             return reply(
-                "❌ Invalid image dimensions."
+                "❌ Invalid image!"
             );
         }
 
-        /*
-         * Create square size
-         */
-        const size = Math.max(width, height);
+        // Square size
+        const size = Math.max(
+            width,
+            height
+        );
 
-        /*
-         * -----------------------------
-         * BLURRED BACKGROUND
-         * -----------------------------
-         */
+        // =====================================================
+        // BLURRED BACKGROUND
+        // =====================================================
 
         const background = image.clone();
 
-        // Cover square area
         background.cover({
             w: size,
             h: size
         });
 
-        // Strong blur
         background.blur(30);
 
-        /*
-         * -----------------------------
-         * FINAL CANVAS
-         * -----------------------------
-         */
+        // =====================================================
+        // FINAL CANVAS
+        // =====================================================
 
         const finalImage = new Jimp({
             width: size,
             height: size
         });
 
-        // Put blurred background
+        // Add blurred background
         finalImage.composite(
             background,
             0,
             0
         );
 
-        /*
-         * -----------------------------
-         * ORIGINAL IMAGE
-         * -----------------------------
-         */
+        // =====================================================
+        // ADD ORIGINAL IMAGE
+        // =====================================================
 
         const x = Math.floor(
             (size - width) / 2
@@ -135,50 +229,62 @@ async (conn, mek, m, { from, isOwner, args, reply }) => {
             y
         );
 
-        /*
-         * -----------------------------
-         * FINAL RESIZE
-         * -----------------------------
-         */
+        // =====================================================
+        // RESIZE
+        // =====================================================
 
         finalImage.resize({
             w: 640,
             h: 640
         });
 
-        /*
-         * -----------------------------
-         * JPEG BUFFER
-         * -----------------------------
-         */
+        // =====================================================
+        // JPEG BUFFER
+        // =====================================================
 
-        const buffer = await finalImage.getBuffer(
-            "image/jpeg"
-        );
+        const finalBuffer =
+            await finalImage.getBuffer(
+                "image/jpeg"
+            );
 
-        await reply(
-            "⏳ Updating profile picture..."
-        );
-
-        /*
-         * -----------------------------
-         * SET PROFILE PICTURE
-         * -----------------------------
-         */
+        // =====================================================
+        // UPDATE WHATSAPP PROFILE PICTURE
+        // =====================================================
 
         await conn.updateProfilePicture(
             conn.user.id,
-            buffer
+            finalBuffer
         );
 
+        // Done reaction
+        await conn.sendMessage(from, {
+            react: {
+                text: "✅",
+                key: mek.key
+            }
+        });
+
+        // =====================================================
+        // SUCCESS MESSAGE
+        // =====================================================
+
         return reply(
-            "✅ Profile picture updated successfully! 🖼️"
+            `╭━━〔 🖼️ *SET PROFILE* 〕━━╮
+┃
+┃ ✅ Profile picture updated!
+┃
+┃ ☁️ Uploaded successfully
+┃ 🔗 ${imageUrl}
+┃
+╰━━━━━━━━━━━━━━━━━━━━╯
+
+> © 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝗗 🌛`
         );
 
     } catch (error) {
 
         console.error(
-            "SET PP ERROR:",
+            "SETPP ERROR:",
             error
         );
 
