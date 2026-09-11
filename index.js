@@ -123,13 +123,13 @@ console.log("Connecting 🪄 RANUMITHA 🏮");
       let up = `❤‍🔥 RANUMITHA 🌍 connected successful ✅`;
       let up1 = `Hello RANUMITHA, I made bot successful ☑️✅`;
 
-      conn.sendMessage("94705349577@s.whatsapp.net", {
+      conn.sendMessage("94772284529@s.whatsapp.net", {
         image: {
           url: `https://raw.githubusercontent.com/Ranumithaofc/RANU-FILE-S-/refs/heads/main/images/GridArt_qulity_up_Red_ranumitha-x-md.jpg`,
         },
         caption: up,
       });
-      conn.sendMessage("94705349577@s.whatsapp.net", {
+      conn.sendMessage("94772284529@s.whatsapp.net", {
         image: {
           url: `https://raw.githubusercontent.com/Ranumithaofc/RANU-FILE-S-/refs/heads/main/images/GridArt_qulity_up_Red_ranumitha-x-md.jpg`,
         },
