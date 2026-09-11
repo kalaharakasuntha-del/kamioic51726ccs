@@ -2,7 +2,7 @@ const { cmd } = require("../command");
 
 cmd({
     pattern: "messagetimer",
-    alias: ["mtimer" , "timeline" , "msgtimer"],
+    alias: ["mtimer", "timeline", "msgtimer"],
     react: "⏱️",
     desc: "Set disappearing messages timer",
     category: "group",
@@ -32,27 +32,27 @@ cmd({
         let text;
 
         if (option === "on") {
-            timer = 7 * 24 * 60 * 60;
+            timer = 604800;
             text = "7 days";
         }
 
         else if (option === "off") {
-            timer = false;
+            timer = 0;
             text = "Off";
         }
 
         else if (option === "24h") {
-            timer = 24 * 60 * 60;
+            timer = 86400;
             text = "24 hours";
         }
 
         else if (option === "7d") {
-            timer = 7 * 24 * 60 * 60;
+            timer = 604800;
             text = "7 days";
         }
 
         else if (option === "90d") {
-            timer = 90 * 24 * 60 * 60;
+            timer = 7776000;
             text = "90 days";
         }
 
@@ -68,9 +68,11 @@ cmd({
             );
         }
 
-        await socket.sendMessage(from, {
-            disappearingMessagesInChat: timer
-        });
+        // Change WhatsApp group disappearing message timer
+        await socket.groupToggleEphemeral(
+            from,
+            timer
+        );
 
         return reply(
             `✅ Message timer set to ${text}.`
