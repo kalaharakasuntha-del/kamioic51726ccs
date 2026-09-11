@@ -11,10 +11,6 @@ cmd({
 
     try {
 
-        if (!from.endsWith("@g.us")) {
-            return reply("*❌ This command can only be used in groups.*");
-        }
-
         const option = args[0]?.toLowerCase();
 
         if (!option) {
@@ -68,11 +64,24 @@ cmd({
             );
         }
 
-        // Change WhatsApp group disappearing message timer
-        await socket.groupToggleEphemeral(
-            from,
-            timer
-        );
+        // Group
+        if (from.endsWith("@g.us")) {
+
+            await socket.groupToggleEphemeral(
+                from,
+                timer
+            );
+
+        }
+
+        // Inbox / Private Chat
+        else {
+
+            await socket.sendMessage(from, {
+                disappearingMessagesInChat: timer
+            });
+
+        }
 
         return reply(
             `✅ Message timer set to *${text}*.`
