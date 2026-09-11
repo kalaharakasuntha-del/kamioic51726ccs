@@ -5,10 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const ffmpeg = require("fluent-ffmpeg");
 
-// =====================================================
 // Fake ChatGPT vCard
-// =====================================================
-
 const fakevCard = {
     key: {
         fromMe: false,
@@ -28,90 +25,24 @@ END:VCARD`
     }
 };
 
-// =====================================================
-// Extract YouTube Video ID
-// =====================================================
-
-function getYouTubeVideoId(url) {
-
-    if (!url) return null;
-
-    const patterns = [
-
-        // Shorts
-        /youtube\.com\/shorts\/([^?&#/]+)/i,
-
-        // Watch
-        /youtube\.com\/watch\?[^#]*v=([^&#]+)/i,
-
-        // youtu.be
-        /youtu\.be\/([^?&#/]+)/i,
-
-        // YouTube embed
-        /youtube\.com\/embed\/([^?&#/]+)/i,
-
-        // YouTube live
-        /youtube\.com\/live\/([^?&#/]+)/i
-    ];
-
-    for (const pattern of patterns) {
-
-        const match = url.match(pattern);
-
-        if (match && match[1]) {
-            return match[1];
-        }
-    }
-
-    return null;
-}
-
-// =====================================================
-// YouTube URL Check
-// =====================================================
-
-function isYouTubeUrl(text) {
-
-    return /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\//i
-        .test(text);
-}
-
-// =====================================================
-// Clean File Name
-// =====================================================
-
-function cleanFileName(name) {
-
-    return String(name || "song")
-        .replace(/[\\/:*?"<>|]/g, "")
-        .replace(/\s+/g, " ")
-        .trim()
-        .slice(0, 150) || "song";
-}
-
-// =====================================================
-// SONG COMMAND
-// =====================================================
-
 cmd({
     pattern: "song",
     alias: ["play", "song1"],
     desc: "YouTube Song Downloader",
     category: "download",
     filename: __filename,
-
 }, async (conn, m, store, { from, quoted, q, reply }) => {
 
     try {
 
-        // =================================================
-        // GET QUERY
-        // =================================================
+        /* =====================================================
+                           GET QUERY
+        ===================================================== */
 
         let query = q?.trim();
 
+        // If no query, check quoted message
         if (!query && m?.quoted) {
-
             query =
                 m.quoted.message?.conversation ||
                 m.quoted.message?.extendedTextMessage?.text ||
@@ -119,7 +50,6 @@ cmd({
         }
 
         if (!query) {
-
             return reply(
                 "⚠️ Please provide a song name or YouTube link."
             );
@@ -132,212 +62,203 @@ cmd({
             }
         });
 
-        // =================================================
-        // VARIABLES
-        // =================================================
+        /* =====================================================
+                    YOUTUBE URL DETECTION
+        ===================================================== */
+
+        const isYouTubeUrl =
+            /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\//i
+                .test(query);
 
         let video;
-        let videoId = null;
-        let youtubeUrl = null;
 
-        // =================================================
-        // DIRECT YOUTUBE URL
-        // =================================================
+        /* =====================================================
+                    DIRECT YOUTUBE URL
+                    + SHORTS SUPPORT
+        ===================================================== */
 
-        if (isYouTubeUrl(query)) {
+        if (isYouTubeUrl) {
 
-            videoId = getYouTubeVideoId(query);
+            let videoId = null;
+
+            /*
+             * YouTube Shorts
+             *
+             * https://youtube.com/shorts/VIDEO_ID
+             */
+
+            const shortsMatch = query.match(
+                /youtube\.com\/shorts\/([^?&#/]+)/i
+            );
+
+            /*
+             * Normal YouTube
+             *
+             * https://youtube.com/watch?v=VIDEO_ID
+             */
+
+            const watchMatch = query.match(
+                /youtube\.com\/watch\?[^#]*v=([^&#]+)/i
+            );
+
+            /*
+             * Short URL
+             *
+             * https://youtu.be/VIDEO_ID
+             */
+
+            const youtuBeMatch = query.match(
+                /youtu\.be\/([^?&#/]+)/i
+            );
+
+            if (shortsMatch) {
+
+                videoId = shortsMatch[1];
+
+            } else if (watchMatch) {
+
+                videoId = watchMatch[1];
+
+            } else if (youtuBeMatch) {
+
+                videoId = youtuBeMatch[1];
+
+            }
 
             if (!videoId) {
-
                 return reply(
                     "❌ Invalid YouTube URL."
                 );
             }
 
-            // ---------------------------------------------
-            // IMPORTANT:
-            // Shorts → normal watch URL
-            // ---------------------------------------------
+            /*
+             * Convert Shorts URL to normal YouTube URL
+             */
 
-            youtubeUrl =
+            const youtubeUrl =
                 `https://www.youtube.com/watch?v=${videoId}`;
 
-            console.log(
-                "YouTube Video ID:",
-                videoId
-            );
-
-            console.log(
-                "YouTube URL:",
-                youtubeUrl
-            );
-
-            // ---------------------------------------------
-            // Try to get metadata
-            // BUT DON'T FAIL if yt-search fails
-            // ---------------------------------------------
+            /*
+             * Get video information
+             */
 
             try {
 
-                const result = await yts({
-                    videoId: videoId
-                });
+                const result = await yts(youtubeUrl);
 
                 if (
-                    result &&
-                    result.title
+                    result?.videos?.length
                 ) {
 
-                    video = result;
+                    video = result.videos[0];
 
-                    console.log(
-                        "yt-search metadata found"
-                    );
                 }
 
             } catch (err) {
 
                 console.log(
-                    "yt-search metadata failed:",
+                    "YouTube video info error:",
                     err.message
                 );
 
             }
 
-            // ---------------------------------------------
-            // If metadata failed, create basic object
-            // ---------------------------------------------
+            /*
+             * Fallback if yt-search does not return info
+             */
+
+            if (!video) {
+
+                try {
+
+                    const search = await yts({
+                        videoId: videoId
+                    });
+
+                    if (
+                        search &&
+                        search.title
+                    ) {
+
+                        video = search;
+
+                    }
+
+                } catch (err) {
+
+                    console.log(
+                        "YouTube fallback error:",
+                        err.message
+                    );
+
+                }
+            }
+
+            /*
+             * If yt-search cannot get metadata,
+             * still continue to download API
+             */
 
             if (!video) {
 
                 video = {
-
-                    title:
-                        `YouTube Video ${videoId}`,
-
-                    url:
-                        youtubeUrl,
-
+                    url: youtubeUrl,
+                    title: "YouTube Video",
                     thumbnail:
                         `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-
-                    timestamp:
-                        "Unknown",
-
-                    ago:
-                        "Unknown",
-
-                    views:
-                        "Unknown"
+                    timestamp: "Unknown",
+                    ago: "Unknown",
+                    views: "Unknown"
                 };
 
-                console.log(
-                    "Using fallback YouTube metadata"
-                );
             }
 
-            // ---------------------------------------------
-            // ALWAYS force correct URL
-            // ---------------------------------------------
+            /*
+             * Make sure API receives normal URL
+             */
 
             video.url = youtubeUrl;
 
         }
 
-        // =================================================
-        // SONG NAME SEARCH
-        // =================================================
+        /* =====================================================
+                         SONG NAME SEARCH
+        ===================================================== */
 
         else {
 
-            console.log(
-                "Searching YouTube:",
-                query
-            );
+            const search = await yts(query);
 
-            const search =
-                await yts(query);
-
-            if (
-                !search ||
-                !search.videos ||
-                !search.videos.length
-            ) {
-
+            if (!search?.videos?.length) {
                 return reply(
                     "❌ Song not found."
                 );
             }
 
-            video =
-                search.videos[0];
-
-            youtubeUrl =
-                video.url;
+            video = search.videos[0];
         }
 
-        // =================================================
-        // CHECK URL
-        // =================================================
-
-        if (!youtubeUrl) {
-
-            return reply(
-                "❌ Unable to get YouTube URL."
-            );
-        }
-
-        console.log(
-            "Final YouTube URL:",
-            youtubeUrl
-        );
-
-        // =================================================
-        // DARK-KNIGHT API
-        // =================================================
+        /* =====================================================
+                        DARK-KNIGHT API
+        ===================================================== */
 
         const api =
             "https://dark-knight-yt-dl-api.vercel.app/download/ytmp3?url=" +
-            encodeURIComponent(youtubeUrl);
+            encodeURIComponent(video.url);
 
         console.log(
             "Dark-Knight API:",
             api
         );
 
-        let data;
-
-        try {
-
-            const response =
-                await axios.get(api, {
-                    timeout: 60000
-                });
-
-            data =
-                response.data;
-
-        } catch (apiError) {
-
-            console.error(
-                "Download API Error:",
-                apiError.message
-            );
-
-            return reply(
-                "❌ Download API is not responding.\n\nPlease try again later."
-            );
-        }
+        const { data } = await axios.get(api, {
+            timeout: 60000
+        });
 
         console.log(
             "API Status:",
             data?.status
         );
-
-        // =================================================
-        // CHECK API RESPONSE
-        // =================================================
 
         if (
             !data?.status ||
@@ -347,21 +268,17 @@ cmd({
 
             console.log(
                 "Dark-Knight API Response:",
-                JSON.stringify(
-                    data,
-                    null,
-                    2
-                )
+                data
             );
 
             return reply(
-                "❌ Unable to download this YouTube video.\n\nThe video may not be supported by the download API."
+                "❌ Download API failed.\n\nPlease try another video."
             );
         }
 
-        // =================================================
-        // DOWNLOAD DATA
-        // =================================================
+        /* =====================================================
+                         DOWNLOAD DATA
+        ===================================================== */
 
         const songUrl =
             data.download.url;
@@ -374,14 +291,12 @@ cmd({
         const thumbnail =
             data.metadata?.thumbnail ||
             data.metadata?.image ||
-            video.thumbnail ||
-            `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+            video.thumbnail;
 
         const duration =
             data.metadata?.duration?.timestamp ||
             data.metadata?.timestamp ||
             video.timestamp ||
-            video.duration?.timestamp ||
             "Unknown";
 
         const quality =
@@ -390,11 +305,11 @@ cmd({
 
         const filename =
             data.download?.filename ||
-            `${cleanFileName(title)}.mp3`;
+            `${title}.mp3`;
 
-        // =================================================
-        // MENU
-        // =================================================
+        /* =====================================================
+                            MENU
+        ===================================================== */
 
         const sentMsg =
             await conn.sendMessage(
@@ -418,7 +333,7 @@ cmd({
 👁 *Views:* ${video.views || "Unknown"}
 
 🔗 *YouTube:*
-${youtubeUrl}
+${video.url}
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -443,9 +358,9 @@ ${youtubeUrl}
         const messageID =
             sentMsg.key.id;
 
-        // =================================================
-        // REPLY LISTENER
-        // =================================================
+        /* =====================================================
+                         REPLY LISTENER
+        ===================================================== */
 
         const handler = async (msgData) => {
 
@@ -459,18 +374,21 @@ ${youtubeUrl}
 
                 const receivedText =
                     receivedMsg.message.conversation ||
-                    receivedMsg.message.extendedTextMessage?.text ||
+                    receivedMsg.message.extendedTextMessage
+                        ?.text ||
                     "";
 
                 const senderID =
                     receivedMsg.key.remoteJid;
 
                 const contextInfo =
-                    receivedMsg.message.extendedTextMessage?.contextInfo;
+                    receivedMsg.message.extendedTextMessage
+                        ?.contextInfo;
 
-                // -----------------------------------------
-                // Check reply to our menu
-                // -----------------------------------------
+                /*
+                 * Check whether user replied
+                 * to our menu message
+                 */
 
                 const isReplyToBot =
                     contextInfo?.stanzaId === messageID;
@@ -478,12 +396,23 @@ ${youtubeUrl}
                 if (!isReplyToBot)
                     return;
 
+                await conn.sendMessage(
+                    senderID,
+                    {
+                        react: {
+                            text: "⬇️",
+                            key: receivedMsg.key
+                        }
+                    }
+                );
+
                 const option =
                     receivedText.trim();
 
-                // =================================================
-                // OPTION 1 - AUDIO
-                // =================================================
+                /* =================================================
+                              OPTION 1
+                              AUDIO
+                ================================================= */
 
                 if (option === "1") {
 
@@ -504,16 +433,12 @@ ${youtubeUrl}
                                 url: songUrl
                             },
 
-                            mimetype:
-                                "audio/mpeg",
+                            mimetype: "audio/mpeg",
 
-                            fileName:
-                                filename
-
+                            fileName: filename
                         },
                         {
-                            quoted:
-                                receivedMsg
+                            quoted: receivedMsg
                         }
                     );
 
@@ -528,9 +453,10 @@ ${youtubeUrl}
                     );
                 }
 
-                // =================================================
-                // OPTION 2 - DOCUMENT
-                // =================================================
+                /* =================================================
+                              OPTION 2
+                              DOCUMENT
+                ================================================= */
 
                 else if (option === "2") {
 
@@ -557,7 +483,13 @@ ${youtubeUrl}
                         );
 
                     const cleanName =
-                        cleanFileName(title);
+                        title
+                            .replace(
+                                /[\\/:*?"<>|]/g,
+                                ""
+                            )
+                            .trim() ||
+                        "song";
 
                     await conn.sendMessage(
                         senderID,
@@ -590,9 +522,10 @@ ${youtubeUrl}
                     );
                 }
 
-                // =================================================
-                // OPTION 3 - VOICE NOTE
-                // =================================================
+                /* =================================================
+                              OPTION 3
+                              VOICE NOTE
+                ================================================= */
 
                 else if (option === "3") {
 
@@ -623,9 +556,9 @@ ${youtubeUrl}
 
                     try {
 
-                        // -----------------------------------------
-                        // Download MP3
-                        // -----------------------------------------
+                        /* =========================================
+                              DOWNLOAD MP3
+                        ========================================= */
 
                         const response =
                             await axios.get(
@@ -660,13 +593,12 @@ ${youtubeUrl}
                                     "error",
                                     reject
                                 );
-
                             }
                         );
 
-                        // -----------------------------------------
-                        // MP3 → OPUS
-                        // -----------------------------------------
+                        /* =========================================
+                              MP3 → OPUS
+                        ========================================= */
 
                         await new Promise(
                             (resolve, reject) => {
@@ -702,13 +634,12 @@ ${youtubeUrl}
                                     .save(
                                         opusPath
                                     );
-
                             }
                         );
 
-                        // -----------------------------------------
-                        // Send Voice Note
-                        // -----------------------------------------
+                        /* =========================================
+                              SEND VOICE NOTE
+                        ========================================= */
 
                         await conn.sendMessage(
                             senderID,
@@ -721,9 +652,7 @@ ${youtubeUrl}
                                 mimetype:
                                     "audio/ogg; codecs=opus",
 
-                                ptt:
-                                    true
-
+                                ptt: true
                             },
                             {
                                 quoted:
@@ -744,45 +673,35 @@ ${youtubeUrl}
 
                     } finally {
 
-                        // -----------------------------------------
-                        // Delete temp files
-                        // -----------------------------------------
+                        /* =========================================
+                              CLEAN TEMP FILES
+                        ========================================= */
 
-                        try {
+                        if (
+                            fs.existsSync(
+                                mp3Path
+                            )
+                        ) {
+                            fs.unlinkSync(
+                                mp3Path
+                            );
+                        }
 
-                            if (
-                                fs.existsSync(
-                                    mp3Path
-                                )
-                            ) {
-                                fs.unlinkSync(
-                                    mp3Path
-                                );
-                            }
-
-                            if (
-                                fs.existsSync(
-                                    opusPath
-                                )
-                            ) {
-                                fs.unlinkSync(
-                                    opusPath
-                                );
-                            }
-
-                        } catch (cleanupError) {
-
-                            console.log(
-                                "Cleanup error:",
-                                cleanupError.message
+                        if (
+                            fs.existsSync(
+                                opusPath
+                            )
+                        ) {
+                            fs.unlinkSync(
+                                opusPath
                             );
                         }
                     }
                 }
 
-                // =================================================
-                // INVALID OPTION
-                // =================================================
+                /* =================================================
+                              INVALID OPTION
+                ================================================= */
 
                 else {
 
@@ -820,7 +739,8 @@ ${youtubeUrl}
                 try {
 
                     await conn.sendMessage(
-                        msgData.messages?.[0]?.key?.remoteJid,
+                        msgData.messages?.[0]
+                            ?.key?.remoteJid,
                         {
                             text:
                                 "❌ *Download failed!*\nPlease try again."
@@ -828,7 +748,6 @@ ${youtubeUrl}
                     );
 
                 } catch (e) {
-
                     console.error(
                         "Error sending failure message:",
                         e
@@ -837,9 +756,9 @@ ${youtubeUrl}
             }
         };
 
-        // =================================================
-        // LISTEN FOR REPLY
-        // =================================================
+        /*
+         * Listen for reply
+         */
 
         conn.ev.on(
             "messages.upsert",
