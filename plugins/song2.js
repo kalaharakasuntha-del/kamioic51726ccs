@@ -35,10 +35,13 @@ cmd({
 
     try {
 
-        /* ================= QUERY ================= */
+        /* =====================================================
+                           GET QUERY
+        ===================================================== */
 
         let query = q?.trim();
 
+        // If no query, check quoted message
         if (!query && m?.quoted) {
             query =
                 m.quoted.message?.conversation ||
@@ -52,13 +55,6 @@ cmd({
             );
         }
 
-        /* ================= SHORTS URL ================= */
-
-        if (query.includes("youtube.com/shorts/")) {
-            const id = query.split("/shorts/")[1].split(/[?&]/)[0];
-            query = `https://www.youtube.com/watch?v=${id}`;
-        }
-
         await conn.sendMessage(from, {
             react: {
                 text: "🎵",
@@ -66,37 +62,200 @@ cmd({
             }
         });
 
-        /* ================= YOUTUBE SEARCH ================= */
+        /* =====================================================
+                    YOUTUBE URL DETECTION
+        ===================================================== */
 
-        const search = await yts(query);
+        const isYouTubeUrl =
+            /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\//i
+                .test(query);
 
-        if (!search?.videos?.length) {
-            return reply("❌ Song not found.");
+        let video;
+
+        /* =====================================================
+                    DIRECT YOUTUBE URL
+                    + SHORTS SUPPORT
+        ===================================================== */
+
+        if (isYouTubeUrl) {
+
+            let videoId = null;
+
+            /*
+             * YouTube Shorts
+             *
+             * https://youtube.com/shorts/VIDEO_ID
+             */
+
+            const shortsMatch = query.match(
+                /youtube\.com\/shorts\/([^?&#/]+)/i
+            );
+
+            /*
+             * Normal YouTube
+             *
+             * https://youtube.com/watch?v=VIDEO_ID
+             */
+
+            const watchMatch = query.match(
+                /youtube\.com\/watch\?[^#]*v=([^&#]+)/i
+            );
+
+            /*
+             * Short URL
+             *
+             * https://youtu.be/VIDEO_ID
+             */
+
+            const youtuBeMatch = query.match(
+                /youtu\.be\/([^?&#/]+)/i
+            );
+
+            if (shortsMatch) {
+
+                videoId = shortsMatch[1];
+
+            } else if (watchMatch) {
+
+                videoId = watchMatch[1];
+
+            } else if (youtuBeMatch) {
+
+                videoId = youtuBeMatch[1];
+
+            }
+
+            if (!videoId) {
+                return reply(
+                    "❌ Invalid YouTube URL."
+                );
+            }
+
+            /*
+             * Convert Shorts URL to normal YouTube URL
+             */
+
+            const youtubeUrl =
+                `https://www.youtube.com/watch?v=${videoId}`;
+
+            /*
+             * Get video information
+             */
+
+            try {
+
+                const result = await yts({
+                    videoId: videoId
+                });
+
+                if (result) {
+                    video = result;
+                }
+
+            } catch (err) {
+                console.log(
+                    "YouTube video info error:",
+                    err.message
+                );
+            }
+
+            /*
+             * Fallback if yt-search does not return info
+             */
+
+            if (!video) {
+
+                try {
+
+                    const search = await yts(youtubeUrl);
+
+                    if (search?.videos?.length) {
+                        video = search.videos[0];
+                    }
+
+                } catch (err) {
+                    console.log(
+                        "YouTube fallback error:",
+                        err.message
+                    );
+                }
+            }
+
+            if (!video) {
+                return reply(
+                    "❌ Unable to get YouTube video information."
+                );
+            }
+
+            /*
+             * Make sure API receives normal URL
+             */
+
+            video.url = youtubeUrl;
+
         }
 
-        const video = search.videos[0];
+        /* =====================================================
+                         SONG NAME SEARCH
+        ===================================================== */
 
-        /* ================= DARK-KNIGHT API ================= */
+        else {
+
+            const search = await yts(query);
+
+            if (!search?.videos?.length) {
+                return reply(
+                    "❌ Song not found."
+                );
+            }
+
+            video = search.videos[0];
+        }
+
+        /* =====================================================
+                        DARK-KNIGHT API
+        ===================================================== */
 
         const api =
-            `https://dark-knight-yt-dl-api.vercel.app/download/ytmp3?url=${encodeURIComponent(video.url)}`;
+            "https://dark-knight-yt-dl-api.vercel.app/download/ytmp3?url=" +
+            encodeURIComponent(video.url);
+
+        console.log(
+            "Dark-Knight API:",
+            api
+        );
 
         const { data } = await axios.get(api, {
             timeout: 60000
         });
+
+        console.log(
+            "API Status:",
+            data?.status
+        );
 
         if (
             !data?.status ||
             !data?.download?.status ||
             !data?.download?.url
         ) {
-            console.log("Dark-Knight API Response:", data);
-            return reply("❌ Download API failed.");
+
+            console.log(
+                "Dark-Knight API Response:",
+                data
+            );
+
+            return reply(
+                "❌ Download API failed.\n\nPlease try another video."
+            );
         }
 
-        const songUrl = data.download.url;
+        /* =====================================================
+                         DOWNLOAD DATA
+        ===================================================== */
 
-        /* ================= METADATA ================= */
+        const songUrl =
+            data.download.url;
 
         const title =
             data.metadata?.title ||
@@ -105,67 +264,92 @@ cmd({
 
         const thumbnail =
             data.metadata?.thumbnail ||
+            data.metadata?.image ||
             video.thumbnail;
 
         const duration =
             data.metadata?.duration?.timestamp ||
+            data.metadata?.timestamp ||
             video.timestamp ||
             "Unknown";
+
+        const quality =
+            data.download?.quality ||
+            "128kbps";
 
         const filename =
             data.download?.filename ||
             `${title}.mp3`;
 
-        /* ================= MENU ================= */
+        /* =====================================================
+                            MENU
+        ===================================================== */
 
-        const sentMsg = await conn.sendMessage(
-            from,
-            {
-                image: {
-                    url: thumbnail
-                },
+        const sentMsg =
+            await conn.sendMessage(
+                from,
+                {
+                    image: {
+                        url: thumbnail
+                    },
 
-                caption: `
+                    caption: `
 🎶 *RANUMITHA-X-MD SONG DOWNLOADER* 🎶
 
 📑 *Title:* ${title}
+
 ⏱ *Duration:* ${duration}
-📆 *Uploaded:* ${video.ago}
-👁 *Views:* ${video.views}
 
-🔗 *YouTube:* ${video.url}
+🎧 *Quality:* ${quality}
 
-🎧 *Quality:* ${data.download?.quality || "128kbps"}
+📆 *Uploaded:* ${video.ago || "Unknown"}
+
+👁 *Views:* ${video.views || "Unknown"}
+
+🔗 *YouTube:*
+${video.url}
+
+━━━━━━━━━━━━━━━━━━
 
 🔽 *Reply with your choice:*
 
 1️⃣ Audio Type 🎵
+
 2️⃣ Document Type 📁
+
 3️⃣ Voice Note Type 🎤
 
+━━━━━━━━━━━━━━━━━━
+
 > © Powered by 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝐃 🌛
-`,
-            },
-            {
-                quoted: fakevCard
-            }
-        );
+`
+                },
+                {
+                    quoted: fakevCard
+                }
+            );
 
-        const messageID = sentMsg.key.id;
+        const messageID =
+            sentMsg.key.id;
 
-        /* ================= REPLY LISTENER ================= */
+        /* =====================================================
+                         REPLY LISTENER
+        ===================================================== */
 
         const handler = async (msgData) => {
 
             try {
 
-                const receivedMsg = msgData.messages?.[0];
+                const receivedMsg =
+                    msgData.messages?.[0];
 
-                if (!receivedMsg?.message) return;
+                if (!receivedMsg?.message)
+                    return;
 
                 const receivedText =
                     receivedMsg.message.conversation ||
-                    receivedMsg.message.extendedTextMessage?.text ||
+                    receivedMsg.message.extendedTextMessage
+                        ?.text ||
                     "";
 
                 const senderID =
@@ -175,31 +359,46 @@ cmd({
                     receivedMsg.message.extendedTextMessage
                         ?.contextInfo;
 
+                /*
+                 * Check whether user replied
+                 * to our menu message
+                 */
+
                 const isReplyToBot =
                     contextInfo?.stanzaId === messageID;
 
-                if (!isReplyToBot) return;
+                if (!isReplyToBot)
+                    return;
+
+                await conn.sendMessage(
+                    senderID,
+                    {
+                        react: {
+                            text: "⬇️",
+                            key: receivedMsg.key
+                        }
+                    }
+                );
 
                 const option =
                     receivedText.trim();
 
-                await conn.sendMessage(senderID, {
-                    react: {
-                        text: "⬇️",
-                        key: receivedMsg.key
-                    }
-                });
-
-                /* ================= AUDIO ================= */
+                /* =================================================
+                              OPTION 1
+                              AUDIO
+                ================================================= */
 
                 if (option === "1") {
 
-                    await conn.sendMessage(senderID, {
-                        react: {
-                            text: "⬆️",
-                            key: receivedMsg.key
+                    await conn.sendMessage(
+                        senderID,
+                        {
+                            react: {
+                                text: "⬆️",
+                                key: receivedMsg.key
+                            }
                         }
-                    });
+                    );
 
                     await conn.sendMessage(
                         senderID,
@@ -207,7 +406,9 @@ cmd({
                             audio: {
                                 url: songUrl
                             },
+
                             mimetype: "audio/mpeg",
+
                             fileName: filename
                         },
                         {
@@ -215,97 +416,144 @@ cmd({
                         }
                     );
 
-                    await conn.sendMessage(senderID, {
-                        react: {
-                            text: "✔️",
-                            key: receivedMsg.key
-                        }
-                    });
-                }
-
-                /* ================= DOCUMENT ================= */
-
-                else if (option === "2") {
-
-                    await conn.sendMessage(senderID, {
-                        react: {
-                            text: "⬆️",
-                            key: receivedMsg.key
-                        }
-                    });
-
-                    const response = await axios.get(
-                        songUrl,
+                    await conn.sendMessage(
+                        senderID,
                         {
-                            responseType: "arraybuffer",
-                            timeout: 120000
+                            react: {
+                                text: "✔️",
+                                key: receivedMsg.key
+                            }
                         }
                     );
+                }
 
-                    const cleanName =
-                        title
-                            .replace(/[\\/:*?"<>|]/g, "")
-                            .trim() || "song";
+                /* =================================================
+                              OPTION 2
+                              DOCUMENT
+                ================================================= */
+
+                else if (option === "2") {
 
                     await conn.sendMessage(
                         senderID,
                         {
-                            document: Buffer.from(response.data),
-                            mimetype: "audio/mpeg",
-                            fileName: `${cleanName}.mp3`
-                        },
-                        {
-                            quoted: receivedMsg
+                            react: {
+                                text: "⬆️",
+                                key: receivedMsg.key
+                            }
                         }
                     );
 
-                    await conn.sendMessage(senderID, {
-                        react: {
-                            text: "✔️",
-                            key: receivedMsg.key
-                        }
-                    });
-                }
-
-                /* ================= VOICE NOTE ================= */
-
-                else if (option === "3") {
-
-                    await conn.sendMessage(senderID, {
-                        react: {
-                            text: "⬆️",
-                            key: receivedMsg.key
-                        }
-                    });
-
-                    const timestamp = Date.now();
-
-                    const mp3Path = path.join(
-                        __dirname,
-                        `${timestamp}.mp3`
-                    );
-
-                    const opusPath = path.join(
-                        __dirname,
-                        `${timestamp}.opus`
-                    );
-
-                    try {
-
-                        /* Download MP3 */
-
-                        const response = await axios.get(
+                    const response =
+                        await axios.get(
                             songUrl,
                             {
-                                responseType: "stream",
-                                timeout: 120000
+                                responseType:
+                                    "arraybuffer",
+
+                                timeout:
+                                    120000
                             }
                         );
 
-                        const writer =
-                            fs.createWriteStream(mp3Path);
+                    const cleanName =
+                        title
+                            .replace(
+                                /[\\/:*?"<>|]/g,
+                                ""
+                            )
+                            .trim() ||
+                        "song";
 
-                        response.data.pipe(writer);
+                    await conn.sendMessage(
+                        senderID,
+                        {
+                            document:
+                                Buffer.from(
+                                    response.data
+                                ),
+
+                            mimetype:
+                                "audio/mpeg",
+
+                            fileName:
+                                `${cleanName}.mp3`
+                        },
+                        {
+                            quoted:
+                                receivedMsg
+                        }
+                    );
+
+                    await conn.sendMessage(
+                        senderID,
+                        {
+                            react: {
+                                text: "✔️",
+                                key: receivedMsg.key
+                            }
+                        }
+                    );
+                }
+
+                /* =================================================
+                              OPTION 3
+                              VOICE NOTE
+                ================================================= */
+
+                else if (option === "3") {
+
+                    await conn.sendMessage(
+                        senderID,
+                        {
+                            react: {
+                                text: "⬆️",
+                                key: receivedMsg.key
+                            }
+                        }
+                    );
+
+                    const timestamp =
+                        Date.now();
+
+                    const mp3Path =
+                        path.join(
+                            __dirname,
+                            `${timestamp}.mp3`
+                        );
+
+                    const opusPath =
+                        path.join(
+                            __dirname,
+                            `${timestamp}.opus`
+                        );
+
+                    try {
+
+                        /* =========================================
+                              DOWNLOAD MP3
+                        ========================================= */
+
+                        const response =
+                            await axios.get(
+                                songUrl,
+                                {
+                                    responseType:
+                                        "stream",
+
+                                    timeout:
+                                        120000
+                                }
+                            );
+
+                        const writer =
+                            fs.createWriteStream(
+                                mp3Path
+                            );
+
+                        response.data.pipe(
+                            writer
+                        );
 
                         await new Promise(
                             (resolve, reject) => {
@@ -322,23 +570,50 @@ cmd({
                             }
                         );
 
-                        /* Convert MP3 → OPUS */
+                        /* =========================================
+                              MP3 → OPUS
+                        ========================================= */
 
                         await new Promise(
                             (resolve, reject) => {
 
                                 ffmpeg(mp3Path)
-                                    .audioCodec("libopus")
-                                    .audioChannels(1)
-                                    .audioFrequency(48000)
-                                    .format("opus")
-                                    .on("end", resolve)
-                                    .on("error", reject)
-                                    .save(opusPath);
+
+                                    .audioCodec(
+                                        "libopus"
+                                    )
+
+                                    .audioChannels(
+                                        1
+                                    )
+
+                                    .audioFrequency(
+                                        48000
+                                    )
+
+                                    .format(
+                                        "opus"
+                                    )
+
+                                    .on(
+                                        "end",
+                                        resolve
+                                    )
+
+                                    .on(
+                                        "error",
+                                        reject
+                                    )
+
+                                    .save(
+                                        opusPath
+                                    );
                             }
                         );
 
-                        /* Send Voice Note */
+                        /* =========================================
+                              SEND VOICE NOTE
+                        ========================================= */
 
                         await conn.sendMessage(
                             senderID,
@@ -347,74 +622,117 @@ cmd({
                                     fs.readFileSync(
                                         opusPath
                                     ),
+
                                 mimetype:
                                     "audio/ogg; codecs=opus",
+
                                 ptt: true
                             },
                             {
-                                quoted: receivedMsg
+                                quoted:
+                                    receivedMsg
                             }
                         );
 
-                        await conn.sendMessage(senderID, {
-                            react: {
-                                text: "✔️",
-                                key: receivedMsg.key
+                        await conn.sendMessage(
+                            senderID,
+                            {
+                                react: {
+                                    text: "✔️",
+                                    key:
+                                        receivedMsg.key
+                                }
                             }
-                        });
+                        );
 
                     } finally {
 
-                        /* Cleanup */
+                        /* =========================================
+                              CLEAN TEMP FILES
+                        ========================================= */
 
-                        if (fs.existsSync(mp3Path)) {
-                            fs.unlinkSync(mp3Path);
+                        if (
+                            fs.existsSync(
+                                mp3Path
+                            )
+                        ) {
+                            fs.unlinkSync(
+                                mp3Path
+                            );
                         }
 
-                        if (fs.existsSync(opusPath)) {
-                            fs.unlinkSync(opusPath);
+                        if (
+                            fs.existsSync(
+                                opusPath
+                            )
+                        ) {
+                            fs.unlinkSync(
+                                opusPath
+                            );
                         }
                     }
                 }
 
-                /* ================= INVALID OPTION ================= */
+                /* =================================================
+                              INVALID OPTION
+                ================================================= */
 
                 else {
-
-                    await conn.sendMessage(senderID, {
-                        react: {
-                            text: "😒",
-                            key: receivedMsg.key
-                        }
-                    });
 
                     await conn.sendMessage(
                         senderID,
                         {
-                            text: "❌ *Invalid option!*\n\nReply with *1*, *2*, or *3*."
+                            react: {
+                                text: "😒",
+                                key:
+                                    receivedMsg.key
+                            }
+                        }
+                    );
+
+                    await conn.sendMessage(
+                        senderID,
+                        {
+                            text:
+                                "❌ *Invalid option!*\n\nReply with *1*, *2*, or *3*."
                         },
                         {
-                            quoted: receivedMsg
+                            quoted:
+                                receivedMsg
                         }
                     );
                 }
 
-            } catch (err) {
+            } catch (error) {
 
                 console.error(
                     "Song Reply Handler Error:",
-                    err
+                    error
                 );
 
-                await conn.sendMessage(
-                    msgData.messages?.[0]?.key?.remoteJid,
-                    {
-                        text:
-                            "❌ *Download failed!*\nPlease try again."
-                    }
-                );
+                try {
+
+                    await conn.sendMessage(
+                        msgData.messages?.[0]
+                            ?.key?.remoteJid,
+                        {
+                            text:
+                                "❌ *Download failed!*\nPlease try again."
+                        }
+                    );
+
+                } catch (e) {
+                    console.error(
+                        "Error sending failure message:",
+                        e
+                    );
+                }
             }
         };
+
+        /*
+         * Listen for reply
+         */
 
         conn.ev.on(
             "messages.upsert",
@@ -428,7 +746,7 @@ cmd({
             error
         );
 
-        reply(
+        return reply(
             "❌ *Error downloading or sending audio.*"
         );
     }
