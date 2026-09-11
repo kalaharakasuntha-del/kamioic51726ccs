@@ -1,6 +1,6 @@
 const { cmd } = require("../command");
 const axios = require("axios");
-const Jimp = require("jimp");
+const { Jimp } = require("jimp");
 
 cmd({
     pattern: "setpp2",
@@ -46,8 +46,8 @@ async (conn, mek, m, { from, isOwner, args, reply }) => {
         const contentType =
             response.headers["content-type"] || "";
 
-        if (!contentType.startsWith("image/")) {
-            return reply("❌ URL එක direct image URL එකක් නෙවෙයි.");
+        if (!contentType.toLowerCase().startsWith("image/")) {
+            return reply("❌ This URL is not a direct image URL.");
         }
 
         const input = Buffer.from(response.data);
@@ -58,33 +58,38 @@ async (conn, mek, m, { from, isOwner, args, reply }) => {
 
         await reply("🖼️ Processing image...");
 
+        // Jimp v1.x
         const image = await Jimp.read(input);
-
-        /*
-         * Any image size / aspect ratio accepted.
-         * No cropping.
-         */
 
         const width = image.bitmap.width;
         const height = image.bitmap.height;
 
+        // Keep the complete image
         const size = Math.max(width, height);
 
-        // Transparent canvas
-        const canvas = new Jimp(size, size, 0x00000000);
+        // White square canvas
+        const canvas = new Jimp({
+            width: size,
+            height: size,
+            color: 0xFFFFFFFF
+        });
 
-        // Center original image
         const x = Math.floor((size - width) / 2);
         const y = Math.floor((size - height) / 2);
 
         canvas.composite(image, x, y);
 
-        // Resize final profile picture
-        canvas.resize(640, 640);
+        // Final profile picture size
+        canvas.resize({
+            w: 640,
+            h: 640
+        });
 
-        const buffer = await canvas.getBufferAsync(
-            Jimp.MIME_JPEG
+        const buffer = await canvas.getBuffer(
+            "image/jpeg"
         );
+
+        await reply("⏳ Updating profile picture...");
 
         await conn.updateProfilePicture(
             conn.user.id,
@@ -101,7 +106,7 @@ async (conn, mek, m, { from, isOwner, args, reply }) => {
 
         return reply(
             "❌ Error updating profile picture.\n\n" +
-            error.message
+            `${error.message}`
         );
     }
 });
