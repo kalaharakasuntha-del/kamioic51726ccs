@@ -33,6 +33,7 @@ async (conn, mek, m, { from, isOwner, args, reply }) => {
 
         await reply("⏳ Downloading image...");
 
+        // Download image
         const response = await axios.get(url, {
             responseType: "arraybuffer",
             timeout: 120000,
@@ -47,49 +48,123 @@ async (conn, mek, m, { from, isOwner, args, reply }) => {
             response.headers["content-type"] || "";
 
         if (!contentType.toLowerCase().startsWith("image/")) {
-            return reply("❌ This URL is not a direct image URL.");
+            return reply(
+                "❌ This URL is not a direct image URL."
+            );
         }
 
         const input = Buffer.from(response.data);
 
         if (!input.length) {
-            return reply("❌ Image download failed.");
+            return reply(
+                "❌ Image download failed."
+            );
         }
 
         await reply("🖼️ Processing image...");
 
-        // Jimp v1.x
+        // Read image using Jimp v1.x
         const image = await Jimp.read(input);
 
         const width = image.bitmap.width;
         const height = image.bitmap.height;
 
-        // Keep the complete image
+        if (!width || !height) {
+            return reply(
+                "❌ Invalid image dimensions."
+            );
+        }
+
+        /*
+         * Create square size
+         */
         const size = Math.max(width, height);
 
-        // White square canvas
-        const canvas = new Jimp({
-            width: size,
-            height: size,
-            color: 0xFFFFFFFF
+        /*
+         * -----------------------------
+         * BLURRED BACKGROUND
+         * -----------------------------
+         */
+
+        const background = image.clone();
+
+        // Cover square area
+        background.cover({
+            w: size,
+            h: size
         });
 
-        const x = Math.floor((size - width) / 2);
-        const y = Math.floor((size - height) / 2);
+        // Strong blur
+        background.blur(30);
 
-        canvas.composite(image, x, y);
+        /*
+         * -----------------------------
+         * FINAL CANVAS
+         * -----------------------------
+         */
 
-        // Final profile picture size
-        canvas.resize({
+        const finalImage = new Jimp({
+            width: size,
+            height: size
+        });
+
+        // Put blurred background
+        finalImage.composite(
+            background,
+            0,
+            0
+        );
+
+        /*
+         * -----------------------------
+         * ORIGINAL IMAGE
+         * -----------------------------
+         */
+
+        const x = Math.floor(
+            (size - width) / 2
+        );
+
+        const y = Math.floor(
+            (size - height) / 2
+        );
+
+        finalImage.composite(
+            image,
+            x,
+            y
+        );
+
+        /*
+         * -----------------------------
+         * FINAL RESIZE
+         * -----------------------------
+         */
+
+        finalImage.resize({
             w: 640,
             h: 640
         });
 
-        const buffer = await canvas.getBuffer(
+        /*
+         * -----------------------------
+         * JPEG BUFFER
+         * -----------------------------
+         */
+
+        const buffer = await finalImage.getBuffer(
             "image/jpeg"
         );
 
-        await reply("⏳ Updating profile picture...");
+        await reply(
+            "⏳ Updating profile picture..."
+        );
+
+        /*
+         * -----------------------------
+         * SET PROFILE PICTURE
+         * -----------------------------
+         */
 
         await conn.updateProfilePicture(
             conn.user.id,
@@ -102,11 +177,14 @@ async (conn, mek, m, { from, isOwner, args, reply }) => {
 
     } catch (error) {
 
-        console.error("SET PP ERROR:", error);
+        console.error(
+            "SET PP ERROR:",
+            error
+        );
 
         return reply(
             "❌ Error updating profile picture.\n\n" +
-            `${error.message}`
+            `Error: ${error.message}`
         );
     }
 });
