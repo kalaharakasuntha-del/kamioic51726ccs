@@ -1,52 +1,75 @@
 const { cmd } = require("../command");
-const Jimp = require("jimp");
+const axios = require("axios");
 
 cmd({
     pattern: "setpp2",
-    desc: "Set bot profile picture.",
+    desc: "Set bot profile picture using image URL",
     category: "owner",
     react: "🖼️",
     filename: __filename
 },
-async (conn, mek, m, { from, isOwner, quoted, reply }) => {
+async (conn, mek, m, { from, isOwner, args, reply }) => {
 
-    if (!isOwner) return reply("❌ You are not the owner!");
+    if (!isOwner) {
+        return reply("❌ You are not the owner!");
+    }
 
-    if (!quoted) {
-        return reply("❌ Please reply to an image.");
+    // URL check
+    const url = args[0];
+
+    if (!url) {
+        return reply(
+            "❌ Please provide an image URL.\n\n" +
+            "Example:\n" +
+            ".setpp https://example.com/image.jpg"
+        );
+    }
+
+    if (!/^https?:\/\/.+/i.test(url)) {
+        return reply("❌ Invalid URL!");
     }
 
     try {
 
-        const media = await conn.downloadMediaMessage(quoted);
+        await reply("⏳ Downloading image...");
 
-        if (!media) {
-            return reply("❌ Failed to download the image.");
+        // Download image
+        const response = await axios.get(url, {
+            responseType: "arraybuffer",
+            timeout: 30000,
+            maxContentLength: 10 * 1024 * 1024
+        });
+
+        const contentType =
+            response.headers["content-type"] || "";
+
+        if (!contentType.startsWith("image/")) {
+            return reply("❌ The URL is not a direct image URL.");
         }
 
-        const image = await Jimp.read(media);
+        const buffer = Buffer.from(response.data);
 
-        image.cover(640, 640);
+        if (!buffer.length) {
+            return reply("❌ Image download failed.");
+        }
 
-        const buffer = await image.getBufferAsync(
-            Jimp.MIME_JPEG
-        );
-
+        // Set profile picture
         await conn.updateProfilePicture(
             conn.user.id,
             buffer
         );
 
         return reply(
-            "🖼️ Profile picture updated successfully!"
+            "✅ Bot profile picture updated successfully! 🖼️"
         );
 
     } catch (error) {
 
-        console.error("SetPP Error:", error);
+        console.error("SET PP ERROR:", error);
 
         return reply(
-            `❌ Error updating profile picture: ${error.message}`
+            "❌ Failed to update profile picture.\n\n" +
+            `Error: ${error.message}`
         );
     }
 });
