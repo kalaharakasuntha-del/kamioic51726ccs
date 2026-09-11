@@ -297,29 +297,19 @@ cmd({
 🎶 *RANUMITHA-X-MD SONG DOWNLOADER* 🎶
 
 📑 *Title:* ${title}
-
 ⏱ *Duration:* ${duration}
-
 🎧 *Quality:* ${quality}
-
 📆 *Uploaded:* ${video.ago || "Unknown"}
-
 👁 *Views:* ${video.views || "Unknown"}
 
 🔗 *YouTube:*
 ${video.url}
 
-━━━━━━━━━━━━━━━━━━
-
 🔽 *Reply with your choice:*
 
 1️⃣ Audio Type 🎵
-
 2️⃣ Document Type 📁
-
 3️⃣ Voice Note Type 🎤
-
-━━━━━━━━━━━━━━━━━━
 
 > © Powered by 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝐃 🌛
 `
