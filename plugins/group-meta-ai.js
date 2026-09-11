@@ -3,6 +3,7 @@ const { cmd } = require("../command");
 cmd({
     pattern: "addmetaai",
     alias: ["addmetaai"],
+    react: "🪻",       
     desc: "Add Meta AI to group",
     category: "group",
     filename: __filename,
