@@ -25,6 +25,108 @@ END:VCARD`
     }
 };
 
+// =====================================================
+// FORMAT DURATION
+// =====================================================
+
+function formatDuration(value) {
+
+    if (value === undefined || value === null)
+        return null;
+
+    if (typeof value === "object") {
+
+        if (value.timestamp)
+            return value.timestamp;
+
+        if (value.seconds !== undefined)
+            value = value.seconds;
+    }
+
+    if (typeof value === "string") {
+
+        if (
+            value.includes(":") &&
+            !value.toLowerCase().includes("unknown")
+        ) {
+            return value;
+        }
+
+        if (/^\d+$/.test(value)) {
+            value = Number(value);
+        }
+    }
+
+    if (typeof value === "number" && isFinite(value)) {
+
+        const totalSeconds = Math.floor(value);
+
+        const hours =
+            Math.floor(totalSeconds / 3600);
+
+        const minutes =
+            Math.floor(
+                (totalSeconds % 3600) / 60
+            );
+
+        const seconds =
+            totalSeconds % 60;
+
+        if (hours > 0) {
+
+            return (
+                `${hours}:` +
+                `${String(minutes).padStart(2, "0")}:` +
+                `${String(seconds).padStart(2, "0")}`
+            );
+
+        }
+
+        return (
+            `${minutes}:` +
+            `${String(seconds).padStart(2, "0")}`
+        );
+    }
+
+    return null;
+}
+
+// =====================================================
+// GET VIDEO DURATION
+// =====================================================
+
+function getVideoDuration(video, metadata) {
+
+    const values = [
+
+        metadata?.duration?.timestamp,
+
+        metadata?.duration,
+
+        metadata?.timestamp,
+
+        video?.duration?.timestamp,
+
+        video?.duration?.seconds,
+
+        video?.timestamp,
+
+        video?.seconds
+
+    ];
+
+    for (const value of values) {
+
+        const result =
+            formatDuration(value);
+
+        if (result)
+            return result;
+    }
+
+    return "Unknown";
+}
+
 cmd({
     pattern: "song",
     alias: ["play", "song1"],
@@ -139,18 +241,26 @@ cmd({
                 `https://www.youtube.com/watch?v=${videoId}`;
 
             /*
-             * Get video information
+             * Get exact video information
+             *
+             * IMPORTANT:
+             * Use videoId lookup first.
+             * This gives duration.timestamp.
              */
 
             try {
 
-                const result = await yts(youtubeUrl);
+                const result =
+                    await yts({
+                        videoId: videoId
+                    });
 
                 if (
-                    result?.videos?.length
+                    result &&
+                    result.title
                 ) {
 
-                    video = result.videos[0];
+                    video = result;
 
                 }
 
@@ -160,27 +270,25 @@ cmd({
                     "YouTube video info error:",
                     err.message
                 );
-
             }
 
             /*
-             * Fallback if yt-search does not return info
+             * Fallback
              */
 
             if (!video) {
 
                 try {
 
-                    const search = await yts({
-                        videoId: videoId
-                    });
+                    const search =
+                        await yts(youtubeUrl);
 
                     if (
-                        search &&
-                        search.title
+                        search?.videos?.length
                     ) {
 
-                        video = search;
+                        video =
+                            search.videos[0];
 
                     }
 
@@ -190,7 +298,6 @@ cmd({
                         "YouTube fallback error:",
                         err.message
                     );
-
                 }
             }
 
@@ -202,13 +309,29 @@ cmd({
             if (!video) {
 
                 video = {
+
                     url: youtubeUrl,
-                    title: "YouTube Video",
+
+                    title:
+                        "YouTube Video",
+
                     thumbnail:
                         `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-                    timestamp: "Unknown",
-                    ago: "Unknown",
-                    views: "Unknown"
+
+                    timestamp:
+                        "Unknown",
+
+                    ago:
+                        "Unknown",
+
+                    views:
+                        "Unknown",
+
+                    duration: {
+                        timestamp:
+                            "Unknown"
+                    }
+
                 };
 
             }
@@ -217,7 +340,8 @@ cmd({
              * Make sure API receives normal URL
              */
 
-            video.url = youtubeUrl;
+            video.url =
+                youtubeUrl;
 
         }
 
@@ -227,7 +351,8 @@ cmd({
 
         else {
 
-            const search = await yts(query);
+            const search =
+                await yts(query);
 
             if (!search?.videos?.length) {
                 return reply(
@@ -235,7 +360,8 @@ cmd({
                 );
             }
 
-            video = search.videos[0];
+            video =
+                search.videos[0];
         }
 
         /* =====================================================
@@ -251,9 +377,10 @@ cmd({
             api
         );
 
-        const { data } = await axios.get(api, {
-            timeout: 60000
-        });
+        const { data } =
+            await axios.get(api, {
+                timeout: 60000
+            });
 
         console.log(
             "API Status:",
@@ -293,11 +420,18 @@ cmd({
             data.metadata?.image ||
             video.thumbnail;
 
+        /*
+         * FIX:
+         * Get duration from API first.
+         * If API doesn't provide it,
+         * get it from yt-search.
+         */
+
         const duration =
-            data.metadata?.duration?.timestamp ||
-            data.metadata?.timestamp ||
-            video.timestamp ||
-            "Unknown";
+            getVideoDuration(
+                video,
+                data.metadata
+            );
 
         const quality =
             data.download?.quality ||
@@ -748,6 +882,7 @@ ${video.url}
                     );
 
                 } catch (e) {
+
                     console.error(
                         "Error sending failure message:",
                         e
