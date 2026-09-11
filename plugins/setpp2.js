@@ -1,8 +1,9 @@
 const { cmd } = require("../command");
 const axios = require("axios");
+const Jimp = require("jimp");
 
 cmd({
-    pattern: "setpp2",
+    pattern: "setpp",
     desc: "Set bot profile picture using image URL",
     category: "owner",
     react: "🖼️",
@@ -14,7 +15,6 @@ async (conn, mek, m, { from, isOwner, args, reply }) => {
         return reply("❌ You are not the owner!");
     }
 
-    // URL check
     const url = args[0];
 
     if (!url) {
@@ -33,34 +33,66 @@ async (conn, mek, m, { from, isOwner, args, reply }) => {
 
         await reply("⏳ Downloading image...");
 
-        // Download image
         const response = await axios.get(url, {
             responseType: "arraybuffer",
-            timeout: 30000,
-            maxContentLength: 10 * 1024 * 1024
+            timeout: 120000,
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity,
+            headers: {
+                "User-Agent": "Mozilla/5.0"
+            }
         });
 
         const contentType =
             response.headers["content-type"] || "";
 
         if (!contentType.startsWith("image/")) {
-            return reply("❌ The URL is not a direct image URL.");
+            return reply("❌ URL එක direct image URL එකක් නෙවෙයි.");
         }
 
-        const buffer = Buffer.from(response.data);
+        const input = Buffer.from(response.data);
 
-        if (!buffer.length) {
+        if (!input.length) {
             return reply("❌ Image download failed.");
         }
 
-        // Set profile picture
+        await reply("🖼️ Processing image...");
+
+        const image = await Jimp.read(input);
+
+        /*
+         * Any image size / aspect ratio accepted.
+         * No cropping.
+         */
+
+        const width = image.bitmap.width;
+        const height = image.bitmap.height;
+
+        const size = Math.max(width, height);
+
+        // Transparent canvas
+        const canvas = new Jimp(size, size, 0x00000000);
+
+        // Center original image
+        const x = Math.floor((size - width) / 2);
+        const y = Math.floor((size - height) / 2);
+
+        canvas.composite(image, x, y);
+
+        // Resize final profile picture
+        canvas.resize(640, 640);
+
+        const buffer = await canvas.getBufferAsync(
+            Jimp.MIME_JPEG
+        );
+
         await conn.updateProfilePicture(
             conn.user.id,
             buffer
         );
 
         return reply(
-            "✅ Bot profile picture updated successfully! 🖼️"
+            "✅ Profile picture updated successfully! 🖼️"
         );
 
     } catch (error) {
@@ -68,8 +100,8 @@ async (conn, mek, m, { from, isOwner, args, reply }) => {
         console.error("SET PP ERROR:", error);
 
         return reply(
-            "❌ Failed to update profile picture.\n\n" +
-            `Error: ${error.message}`
+            "❌ Error updating profile picture.\n\n" +
+            error.message
         );
     }
 });
