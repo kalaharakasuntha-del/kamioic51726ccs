@@ -1,0 +1,90 @@
+const { cmd } = require("../command");
+
+cmd({
+    pattern: "messagetimer",
+    alias: ["mtimer" , "timeline"],
+    react: "⏱️",
+    desc: "Set disappearing messages timer",
+    category: "group",
+    filename: __filename,
+}, async (socket, m, store, { from, reply, args }) => {
+
+    try {
+
+        if (!from.endsWith("@g.us")) {
+            return reply("❌ This command can only be used in groups.");
+        }
+
+        const option = args[0]?.toLowerCase();
+
+        if (!option) {
+            return reply(
+                "❌ Please select a timer.\n\n" +
+                "• messagetimer on → 7 days\n" +
+                "• messagetimer off → Off\n" +
+                "• messagetimer 24h → 24 hours\n" +
+                "• messagetimer 7d → 7 days\n" +
+                "• messagetimer 90d → 90 days"
+            );
+        }
+
+        let timer;
+        let text;
+
+        if (option === "on") {
+            timer = 7 * 24 * 60 * 60;
+            text = "7 days";
+        }
+
+        else if (option === "off") {
+            timer = false;
+            text = "Off";
+        }
+
+        else if (option === "24h") {
+            timer = 24 * 60 * 60;
+            text = "24 hours";
+        }
+
+        else if (option === "7d") {
+            timer = 7 * 24 * 60 * 60;
+            text = "7 days";
+        }
+
+        else if (option === "90d") {
+            timer = 90 * 24 * 60 * 60;
+            text = "90 days";
+        }
+
+        else {
+            return reply(
+                "❌ Invalid timer.\n\n" +
+                "Use:\n" +
+                "• on\n" +
+                "• off\n" +
+                "• 24h\n" +
+                "• 7d\n" +
+                "• 90d"
+            );
+        }
+
+        await socket.sendMessage(from, {
+            disappearingMessagesInChat: timer
+        });
+
+        return reply(
+            `✅ Message timer set to ${text}.`
+        );
+
+    } catch (error) {
+
+        console.error(
+            "Message Timer Error:",
+            error
+        );
+
+        return reply(
+            "❌ Failed to change message timer."
+        );
+    }
+});
