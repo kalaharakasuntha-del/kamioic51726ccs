@@ -12,14 +12,14 @@ cmd({
     try {
 
         if (!from.endsWith("@g.us")) {
-            return reply("❌ This command can only be used in groups.");
+            return reply("*❌ This command can only be used in groups.*");
         }
 
         const option = args[0]?.toLowerCase();
 
         if (!option) {
             return reply(
-                "❌ Please select a timer.\n\n" +
+                "*📛 Please select a timer.*\n\n" +
                 "• messagetimer on → 7 days\n" +
                 "• messagetimer off → Off\n" +
                 "• messagetimer 24h → 24 hours\n" +
@@ -75,7 +75,7 @@ cmd({
         );
 
         return reply(
-            `✅ Message timer set to ${text}.`
+            `✅ Message timer set to *${text}*.`
         );
 
     } catch (error) {
