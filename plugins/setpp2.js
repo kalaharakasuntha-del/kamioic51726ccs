@@ -3,7 +3,7 @@ const axios = require("axios");
 const Jimp = require("jimp");
 
 cmd({
-    pattern: "setpp",
+    pattern: "setpp2",
     desc: "Set bot profile picture using image URL",
     category: "owner",
     react: "🖼️",
