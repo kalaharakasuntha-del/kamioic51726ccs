@@ -1,4 +1,5 @@
 const { cmd } = require("../command");
+const Jimp = require("jimp");
 
 cmd({
     pattern: "setpp2",
@@ -17,25 +18,23 @@ async (conn, mek, m, { from, isOwner, quoted, reply }) => {
 
     try {
 
-        const imageMessage =
-            quoted.message?.imageMessage ||
-            quoted.msg?.imageMessage ||
-            quoted.imageMessage ||
-            quoted;
-
-        if (!imageMessage) {
-            return reply("❌ Please reply to an image.");
-        }
-
         const media = await conn.downloadMediaMessage(quoted);
 
         if (!media) {
             return reply("❌ Failed to download the image.");
         }
 
+        const image = await Jimp.read(media);
+
+        image.cover(640, 640);
+
+        const buffer = await image.getBufferAsync(
+            Jimp.MIME_JPEG
+        );
+
         await conn.updateProfilePicture(
             conn.user.id,
-            media
+            buffer
         );
 
         return reply(
