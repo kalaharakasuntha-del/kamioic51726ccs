@@ -552,7 +552,7 @@ async (
                 }
 
                 // ==================================================
-                // PREVENT DOUBLE DOWNLOAD
+                // PREVENT DOUBLE DOWNLOAD AT SAME TIME
                 // ==================================================
 
                 if (downloading) {
@@ -992,6 +992,7 @@ async (
                         );
                     }
 
+                    // Reset flag so user can reply again to the same menu
                     downloading = false;
                 }
 
@@ -1044,7 +1045,7 @@ async (
         };
 
         // ==================================================
-        // 8. ADD ONLY ONE LISTENER
+        // 8. ADD LISTENER
         // ==================================================
 
         conn.ev.on(
