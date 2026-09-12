@@ -219,7 +219,7 @@ async (conn, mek, m, { from, isOwner, reply }) => {
 ┃
 ╰━━━━━━━━━━━━━━━━━━━━╯
 
-> © 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝗗 🌛`
+> © Powerd by 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝗗 🌛`
         );
 
     } catch (error) {
