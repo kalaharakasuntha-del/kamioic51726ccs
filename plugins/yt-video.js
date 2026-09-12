@@ -3,6 +3,7 @@ const yts = require("yt-search");
 const { cmd } = require("../command");
 const fs = require("fs");
 const path = require("path");
+const ffmpeg = require("fluent-ffmpeg");
 
 // ======================================================
 // FAKE CHATGPT vCard
@@ -93,37 +94,6 @@ function createApiUrl(videoUrl, quality) {
 }
 
 // ======================================================
-// EXTRACT VIDEO URL
-// ======================================================
-
-function extractVideoUrl(apiRes) {
-
-    if (!apiRes) return null;
-
-    if (apiRes.result?.video) {
-        return apiRes.result.video;
-    }
-
-    if (apiRes.result?.url) {
-        return apiRes.result.url;
-    }
-
-    if (apiRes.result?.download) {
-        return apiRes.result.download;
-    }
-
-    if (apiRes.video) {
-        return apiRes.video;
-    }
-
-    if (apiRes.url) {
-        return apiRes.url;
-    }
-
-    return null;
-}
-
-// ======================================================
 // DOWNLOAD STREAM
 // ======================================================
 
@@ -156,6 +126,28 @@ async function downloadFile(url, outputPath) {
         writer.on("error", reject);
 
         response.data.on("error", reject);
+    });
+}
+
+// ======================================================
+// MERGE VIDEO AND AUDIO FAST (STREAM COPY)
+// ======================================================
+
+function mergeVideoAndAudio(videoPath, audioPath, outputPath) {
+    return new Promise((resolve, reject) => {
+        ffmpeg()
+            .input(videoPath)
+            .input(audioPath)
+            .outputOptions([
+                "-c:v copy",
+                "-c:a aac",
+                "-map 0:v:0",
+                "-map 1:a:0",
+                "-shortest"
+            ])
+            .save(outputPath)
+            .on("end", () => resolve(outputPath))
+            .on("error", reject);
     });
 }
 
@@ -276,7 +268,7 @@ async (
         );
 
         // ==================================================
-        // 5. TEMPLATE — UNCHANGED
+        // 5. TEMPLATE
         // ==================================================
 
         const caption = `
@@ -331,12 +323,6 @@ async (
             "VIDEO MENU ID:",
             messageID
         );
-
-        // ==================================================
-        // DOWNLOAD LOCK
-        // ==================================================
-
-        let downloading = false;
 
         // ==================================================
         // 7. REPLY LISTENER
@@ -479,26 +465,6 @@ async (
                 }
 
                 // ==================================================
-                // PREVENT DOUBLE DOWNLOAD AT SAME TIME
-                // ==================================================
-
-                if (downloading) {
-
-                    return conn.sendMessage(
-                        senderID,
-                        {
-                            text:
-                                "⏳ Another download is already processing.\nPlease wait..."
-                        },
-                        {
-                            quoted: receivedMsg
-                        }
-                    );
-                }
-
-                downloading = true;
-
-                // ==================================================
                 // DOWNLOAD REACTION
                 // ==================================================
 
@@ -533,7 +499,7 @@ async (
                 }
 
                 // ==================================================
-                // UNIQUE FILE
+                // UNIQUE FILES
                 // ==================================================
 
                 const uniqueID =
@@ -541,10 +507,22 @@ async (
                         .toString(36)
                         .substring(2, 8)}`;
 
-                const inputFile =
+                const videoInput =
                     path.join(
                         tempDir,
-                        `${uniqueID}.mp4`
+                        `${uniqueID}_video.mp4`
+                    );
+
+                const audioInput =
+                    path.join(
+                        tempDir,
+                        `${uniqueID}_audio.mp3`
+                    );
+
+                const finalOutput =
+                    path.join(
+                        tempDir,
+                        `${uniqueID}_final.mp4`
                     );
 
                 try {
@@ -642,12 +620,13 @@ async (
                         );
                     }
 
-                    // ==================================================
-                    // GET VIDEO URL
-                    // ==================================================
-
                     const videoUrl =
-                        extractVideoUrl(apiRes);
+                        apiRes.result.video ||
+                        apiRes.result.url ||
+                        apiRes.result.download;
+
+                    const audioUrl =
+                        apiRes.result.audio;
 
                     if (!videoUrl) {
 
@@ -668,31 +647,31 @@ async (
                     );
 
                     // ==================================================
-                    // DOWNLOAD DIRECTLY
+                    // DOWNLOAD VIDEO & AUDIO STREAMS
                     // ==================================================
 
-                    await downloadFile(
-                        videoUrl,
-                        inputFile
-                    );
+                    let targetFile = finalOutput;
 
-                    if (
-                        !fs.existsSync(inputFile)
-                    ) {
-                        throw new Error(
-                            "Downloaded file not found."
-                        );
+                    if (audioUrl) {
+                        await Promise.all([
+                            downloadFile(videoUrl, videoInput),
+                            downloadFile(audioUrl, audioInput)
+                        ]);
+
+                        console.log("Merging video and audio...");
+                        await mergeVideoAndAudio(videoInput, audioInput, finalOutput);
+                        targetFile = finalOutput;
+                    } else {
+                        // If no separate audio, download video directly
+                        await downloadFile(videoUrl, finalOutput);
+                        targetFile = finalOutput;
                     }
 
-                    const inputStats =
-                        fs.statSync(inputFile);
-
                     if (
-                        inputStats.size < 1000
+                        !fs.existsSync(targetFile) ||
+                        fs.statSync(targetFile).size < 1000
                     ) {
-                        throw new Error(
-                            "Downloaded file is invalid."
-                        );
+                        throw new Error("Generated video file is invalid or missing.");
                     }
 
                     // ==================================================
@@ -742,7 +721,7 @@ async (
                             senderID,
                             {
                                 document: {
-                                    url: inputFile
+                                    url: targetFile
                                 },
 
                                 mimetype:
@@ -769,7 +748,7 @@ async (
                             senderID,
                             {
                                 video: {
-                                    url: inputFile
+                                    url: targetFile
                                 },
 
                                 mimetype:
@@ -778,7 +757,7 @@ async (
                                 caption:
                                     `*${data.title}*\n\n` +
                                     `*Quality:* ${selectedFormat}\n\n` +
-                                    `> © Powerd by 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝗗 🌛`,
+                                    `> © RANUMITHA-X-MD`,
 
                                 ptt: false
                             },
@@ -806,29 +785,16 @@ async (
                 } finally {
 
                     // ==================================================
-                    // CLEAN FILE
+                    // CLEANUP FILES
                     // ==================================================
 
                     try {
-
-                        if (
-                            fs.existsSync(inputFile)
-                        ) {
-
-                            fs.unlinkSync(
-                                inputFile
-                            );
-                        }
-
+                        if (fs.existsSync(videoInput)) fs.unlinkSync(videoInput);
+                        if (fs.existsSync(audioInput)) fs.unlinkSync(audioInput);
+                        if (fs.existsSync(finalOutput)) fs.unlinkSync(finalOutput);
                     } catch (e) {
-
-                        console.error(
-                            "Cleanup Error:",
-                            e.message
-                        );
+                        console.error("Cleanup Error:", e.message);
                     }
-
-                    downloading = false;
                 }
 
             } catch (error) {
@@ -837,8 +803,6 @@ async (
                     "Video Download Error:",
                     error
                 );
-
-                downloading = false;
 
                 try {
 
