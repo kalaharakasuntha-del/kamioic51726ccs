@@ -10,7 +10,7 @@ const fetch = (...args) =>
 
 cmd({
     pattern: "setfullpp",
-    alias: ["setfullprofile", "addfullpp"],
+    alias: ["setfullprofile", "addfullpp", "setfulldp"],
     desc: "Set bot profile picture from replied image",
     category: "owner",
     react: "🖼️",
@@ -259,7 +259,7 @@ async (conn, mek, m, { from, isOwner, reply }) => {
         // Done reaction
         await conn.sendMessage(from, {
             react: {
-                text: "✅",
+                text: "✔️",
                 key: mek.key
             }
         });
