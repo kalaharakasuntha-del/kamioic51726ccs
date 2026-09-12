@@ -47,7 +47,7 @@ function getReplyText(m) {
 }
 
 // ======================================================
-// YOUTUBE ID EXTRACTOR (SUPPORTS SHORTS & REGULAR LINKS)
+// YOUTUBE ID EXTRACTOR
 // ======================================================
 
 function getYouTubeId(url) {
@@ -171,30 +171,50 @@ async (
         }
 
         // ==================================================
-        // 2. YOUTUBE SEARCH & SHORTS SUPPORT
+        // 2. YOUTUBE SEARCH WITH FALLBACK
         // ==================================================
 
         const videoId = getYouTubeId(query);
         let data = null;
 
-        try {
-            if (videoId) {
-                // Extract video metadata directly if Video ID exists (Shorts / Direct Link)
+        if (videoId) {
+            try {
                 data = await yts({ videoId: videoId });
-            } else {
-                // Search query if plain text
+            } catch (e) {
+                try {
+                    const search = await yts(`https://www.youtube.com/watch?v=${videoId}`);
+                    if (search && search.videos && search.videos.length) {
+                        data = search.videos[0];
+                    }
+                } catch (err) {
+                    console.log("yt-search direct lookup failed, fallback applied.");
+                }
+            }
+
+            // Fallback if yt-search fails completely for a direct link/shorts
+            if (!data) {
+                data = {
+                    title: "YouTube Video / Shorts",
+                    timestamp: "N/A",
+                    ago: "N/A",
+                    views: "N/A",
+                    url: `https://www.youtube.com/watch?v=${videoId}`,
+                    thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+                };
+            }
+        } else {
+            try {
                 const search = await yts(query);
                 if (search && search.videos && search.videos.length) {
                     data = search.videos[0];
                 }
+            } catch (err) {
+                console.error("YouTube Search Error:", err);
             }
-        } catch (error) {
-            console.error("YouTube Search Error:", error);
-            return reply("❌ YouTube video fetch failed.\nPlease try again.");
         }
 
         if (!data || !data.url) {
-            return reply("*❌ No results found.*");
+            return reply("*❌ No results found or YouTube blocked search.*");
         }
 
         const ytUrl = data.url;
