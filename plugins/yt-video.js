@@ -3,7 +3,6 @@ const yts = require("yt-search");
 const { cmd } = require("../command");
 const fs = require("fs");
 const path = require("path");
-const ffmpeg = require("fluent-ffmpeg");
 
 // ======================================================
 // FAKE CHATGPT vCard
@@ -161,76 +160,6 @@ async function downloadFile(url, outputPath) {
 }
 
 // ======================================================
-// CONVERT TO WHATSAPP MP4
-// ======================================================
-
-function convertToWhatsAppMP4(
-    inputPath,
-    outputPath
-) {
-
-    return new Promise((resolve, reject) => {
-
-        ffmpeg(inputPath)
-
-            .videoCodec("libx264")
-            .audioCodec("aac")
-
-            .outputOptions([
-                "-preset veryfast",
-                "-crf 23",
-                "-pix_fmt yuv420p",
-                "-movflags +faststart",
-                "-profile:v main",
-                "-level 3.1",
-                "-ar 44100",
-                "-ac 2",
-                "-b:a 128k"
-            ])
-
-            .format("mp4")
-
-            .on("start", commandLine => {
-                console.log(
-                    "FFMPEG:",
-                    commandLine
-                );
-            })
-
-            .on("progress", progress => {
-
-                if (progress.percent) {
-
-                    console.log(
-                        `Converting: ${progress.percent.toFixed(1)}%`
-                    );
-                }
-            })
-
-            .on("end", () => {
-
-                console.log(
-                    "MP4 conversion completed"
-                );
-
-                resolve(outputPath);
-            })
-
-            .on("error", error => {
-
-                console.error(
-                    "FFMPEG ERROR:",
-                    error
-                );
-
-                reject(error);
-            })
-
-            .save(outputPath);
-    });
-}
-
-// ======================================================
 // MAIN COMMAND
 // ======================================================
 
@@ -338,8 +267,6 @@ async (
         const data =
             search.videos[0];
 
-        // IMPORTANT:
-        // This URL remains fixed for this menu.
         const ytUrl =
             data.url;
 
@@ -606,7 +533,7 @@ async (
                 }
 
                 // ==================================================
-                // UNIQUE FILES
+                // UNIQUE FILE
                 // ==================================================
 
                 const uniqueID =
@@ -615,12 +542,6 @@ async (
                         .substring(2, 8)}`;
 
                 const inputFile =
-                    path.join(
-                        tempDir,
-                        `${uniqueID}_input`
-                    );
-
-                const outputFile =
                     path.join(
                         tempDir,
                         `${uniqueID}.mp4`
@@ -662,15 +583,6 @@ async (
                             }
                         );
 
-                    console.log(
-                        "API STATUS:",
-                        response.status
-                    );
-
-                    // ==================================================
-                    // API HTTP ERROR
-                    // ==================================================
-
                     if (
                         response.status !== 200
                     ) {
@@ -701,19 +613,6 @@ async (
 
                     const apiRes =
                         response.data;
-
-                    console.log(
-                        "API RESPONSE:",
-                        JSON.stringify(
-                            apiRes,
-                            null,
-                            2
-                        )
-                    );
-
-                    // ==================================================
-                    // API RESULT CHECK
-                    // ==================================================
 
                     if (
                         !apiRes ||
@@ -769,17 +668,13 @@ async (
                     );
 
                     // ==================================================
-                    // DOWNLOAD
+                    // DOWNLOAD DIRECTLY
                     // ==================================================
 
                     await downloadFile(
                         videoUrl,
                         inputFile
                     );
-
-                    // ==================================================
-                    // CHECK INPUT
-                    // ==================================================
 
                     if (
                         !fs.existsSync(inputFile)
@@ -797,42 +692,6 @@ async (
                     ) {
                         throw new Error(
                             "Downloaded file is invalid."
-                        );
-                    }
-
-                    // ==================================================
-                    // CONVERT
-                    // ==================================================
-
-                    console.log(
-                        "Converting to WhatsApp compatible MP4..."
-                    );
-
-                    await convertToWhatsAppMP4(
-                        inputFile,
-                        outputFile
-                    );
-
-                    // ==================================================
-                    // OUTPUT CHECK
-                    // ==================================================
-
-                    if (
-                        !fs.existsSync(outputFile)
-                    ) {
-                        throw new Error(
-                            "FFmpeg did not create MP4."
-                        );
-                    }
-
-                    const outputStats =
-                        fs.statSync(outputFile);
-
-                    if (
-                        outputStats.size < 1000
-                    ) {
-                        throw new Error(
-                            "Generated MP4 is invalid."
                         );
                     }
 
@@ -874,7 +733,7 @@ async (
                             );
 
                     // ==================================================
-                    // DOCUMENT
+                    // SEND DOCUMENT
                     // ==================================================
 
                     if (isDocument) {
@@ -883,7 +742,7 @@ async (
                             senderID,
                             {
                                 document: {
-                                    url: outputFile
+                                    url: inputFile
                                 },
 
                                 mimetype:
@@ -901,7 +760,7 @@ async (
                     }
 
                     // ==================================================
-                    // NORMAL VIDEO
+                    // SEND NORMAL VIDEO
                     // ==================================================
 
                     else {
@@ -910,7 +769,7 @@ async (
                             senderID,
                             {
                                 video: {
-                                    url: outputFile
+                                    url: inputFile
                                 },
 
                                 mimetype:
@@ -919,7 +778,7 @@ async (
                                 caption:
                                     `*${data.title}*\n\n` +
                                     `*Quality:* ${selectedFormat}\n\n` +
-                                    `> © RANUMITHA-X-MD`,
+                                    `> © Powerd by 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝗗 🌛`,
 
                                 ptt: false
                             },
@@ -931,7 +790,7 @@ async (
                     }
 
                     // ==================================================
-                    // SUCCESS
+                    // SUCCESS REACTION
                     // ==================================================
 
                     await conn.sendMessage(
@@ -947,7 +806,7 @@ async (
                 } finally {
 
                     // ==================================================
-                    // CLEAN INPUT
+                    // CLEAN FILE
                     // ==================================================
 
                     try {
@@ -964,35 +823,11 @@ async (
                     } catch (e) {
 
                         console.error(
-                            "Input cleanup:",
+                            "Cleanup Error:",
                             e.message
                         );
                     }
 
-                    // ==================================================
-                    // CLEAN OUTPUT
-                    // ==================================================
-
-                    try {
-
-                        if (
-                            fs.existsSync(outputFile)
-                        ) {
-
-                            fs.unlinkSync(
-                                outputFile
-                            );
-                        }
-
-                    } catch (e) {
-
-                        console.error(
-                            "Output cleanup:",
-                            e.message
-                        );
-                    }
-
-                    // Reset flag so user can reply again to the same menu
                     downloading = false;
                 }
 
@@ -1052,28 +887,6 @@ async (
             "messages.upsert",
             replyHandler
         );
-
-        // ==================================================
-        // 9. AUTO REMOVE AFTER 5 MINUTES
-        // ==================================================
-
-        setTimeout(() => {
-
-            try {
-
-                conn.ev.off(
-                    "messages.upsert",
-                    replyHandler
-                );
-
-                console.log(
-                    "Video menu listener expired:",
-                    messageID
-                );
-
-            } catch (e) {}
-
-        }, 5 * 60 * 1000);
 
     } catch (error) {
 
