@@ -55,7 +55,10 @@ function isYouTubeUrl(text) {
 
     try {
         const u = new URL(text.trim());
-        const host = u.hostname.toLowerCase().replace(/^www\./, "");
+
+        const host = u.hostname
+            .toLowerCase()
+            .replace(/^www\./, "");
 
         return (
             host === "youtube.com" ||
@@ -74,59 +77,38 @@ function isYouTubeUrl(text) {
 // ======================================================
 
 function getYouTubeId(url) {
-
     try {
-
         const u = new URL(url.trim());
 
-        const host =
-            u.hostname
-                .toLowerCase()
-                .replace(/^www\./, "");
+        const host = u.hostname
+            .toLowerCase()
+            .replace(/^www\./, "");
 
-        // ----------------------------------------------
         // youtu.be/VIDEO_ID
-        // ----------------------------------------------
-
         if (host === "youtu.be") {
-
             return u.pathname
                 .replace(/^\/+/, "")
                 .split("/")[0]
-                .split("?")[0]
                 .trim();
         }
 
-        // ----------------------------------------------
         // youtube.com/shorts/VIDEO_ID
-        // ----------------------------------------------
-
         if (u.pathname.startsWith("/shorts/")) {
-
             return u.pathname
                 .split("/shorts/")[1]
                 .split("/")[0]
-                .split("?")[0]
                 .trim();
         }
 
-        // ----------------------------------------------
         // youtube.com/watch?v=VIDEO_ID
-        // ----------------------------------------------
-
-        const v =
-            u.searchParams.get("v");
+        const v = u.searchParams.get("v");
 
         if (v) {
             return v.trim();
         }
 
-        // ----------------------------------------------
         // youtube.com/embed/VIDEO_ID
-        // ----------------------------------------------
-
         if (u.pathname.startsWith("/embed/")) {
-
             return u.pathname
                 .split("/embed/")[1]
                 .split("/")[0]
@@ -141,35 +123,119 @@ function getYouTubeId(url) {
 }
 
 // ======================================================
-// NORMALIZE YOUTUBE URL
+// CLEAN YOUTUBE URL
 // ======================================================
 
-function normalizeYouTubeUrl(url) {
+function cleanYouTubeUrl(url) {
+
+    const id = getYouTubeId(url);
+
+    if (!id) return null;
+
+    return `https://www.youtube.com/watch?v=${id}`;
+}
+
+// ======================================================
+// GET VIDEO INFO FROM YOUTUBE
+// ======================================================
+
+async function getYouTubeInfo(url) {
+
+    const videoId =
+        getYouTubeId(url);
+
+    if (!videoId) {
+        throw new Error(
+            "Invalid YouTube video ID."
+        );
+    }
+
+    console.log(
+        "YouTube Video ID:",
+        videoId
+    );
+
+    // --------------------------------------------------
+    // IMPORTANT:
+    // Search by video ID instead of searching the URL.
+    // This fixes Shorts "No results found".
+    // --------------------------------------------------
+
+    let result;
 
     try {
 
-        const videoId =
-            getYouTubeId(url);
+        result =
+            await yts({
+                videoId: videoId
+            });
 
-        if (!videoId) {
-            return null;
+    } catch (error) {
+
+        console.log(
+            "yt-search videoId failed:",
+            error.message
+        );
+
+        // Fallback: search exact ID
+        try {
+
+            const search =
+                await yts(videoId);
+
+            if (
+                search?.videos?.length
+            ) {
+
+                result =
+                    search.videos[0];
+            }
+
+        } catch (e) {
+
+            console.log(
+                "yt-search fallback failed:",
+                e.message
+            );
         }
-
-        // Always send a clean watch URL to the API.
-        // This works for normal videos AND Shorts.
-
-        return `https://www.youtube.com/watch?v=${videoId}`;
-
-    } catch {
-        return null;
     }
+
+    // yt-search may return video directly
+    if (
+        result &&
+        result.videoId
+    ) {
+        return result;
+    }
+
+    // Some versions return an array
+    if (
+        Array.isArray(result) &&
+        result.length
+    ) {
+        return result[0];
+    }
+
+    // Some versions return videos
+    if (
+        result?.videos?.length
+    ) {
+        return result.videos[0];
+    }
+
+    throw new Error(
+        "Unable to get YouTube video information."
+    );
 }
 
 // ======================================================
 // API URL
 // ======================================================
 
-function createApiUrl(videoUrl, quality) {
+function createApiUrl(
+    videoUrl,
+    quality
+) {
 
     const params =
         new URLSearchParams();
@@ -199,30 +265,36 @@ function createApiUrl(videoUrl, quality) {
 // DOWNLOAD STREAM
 // ======================================================
 
-async function downloadFile(url, outputPath) {
+async function downloadFile(
+    url,
+    outputPath
+) {
 
     const response =
-        await axios.get(url, {
+        await axios.get(
+            url,
+            {
+                responseType:
+                    "stream",
 
-            responseType: "stream",
+                timeout:
+                    180000,
 
-            timeout: 180000,
+                maxContentLength:
+                    Infinity,
 
-            maxContentLength:
-                Infinity,
+                maxBodyLength:
+                    Infinity,
 
-            maxBodyLength:
-                Infinity,
+                headers: {
+                    "User-Agent":
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0 Safari/537.36",
 
-            headers: {
-
-                "User-Agent":
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0 Safari/537.36",
-
-                "Accept":
-                    "*/*"
+                    "Accept":
+                        "*/*"
+                }
             }
-        });
+        );
 
     return new Promise(
         (resolve, reject) => {
@@ -232,7 +304,9 @@ async function downloadFile(url, outputPath) {
                     outputPath
                 );
 
-            response.data.pipe(writer);
+            response.data.pipe(
+                writer
+            );
 
             writer.on(
                 "finish",
@@ -260,7 +334,7 @@ async function downloadFile(url, outputPath) {
 }
 
 // ======================================================
-// MERGE VIDEO + AUDIO
+// MERGE VIDEO + AUDIO FAST
 // ======================================================
 
 function mergeVideoAndAudio(
@@ -273,23 +347,15 @@ function mergeVideoAndAudio(
         (resolve, reject) => {
 
             ffmpeg()
-
                 .input(videoPath)
-
                 .input(audioPath)
 
                 .outputOptions([
-
                     "-c:v copy",
-
                     "-c:a aac",
-
                     "-map 0:v:0",
-
                     "-map 1:a:0",
-
                     "-shortest"
-
                 ])
 
                 .save(outputPath)
@@ -315,28 +381,13 @@ function mergeVideoAndAudio(
 // ======================================================
 
 cmd({
-
     pattern: "video",
-
-    alias: [
-        "ytvideo",
-        "."
-    ],
-
+    alias: ["ytvideo", "."],
     react: "🎬",
-
-    desc:
-        "Download YouTube MP4",
-
-    category:
-        "download",
-
-    use:
-        ".video <query>",
-
-    filename:
-        __filename
-
+    desc: "Download YouTube MP4",
+    category: "download",
+    use: ".video <query>",
+    filename: __filename
 },
 
 async (
@@ -365,7 +416,6 @@ async (
             !query &&
             m?.quoted
         ) {
-
             query =
                 getReplyText(m);
         }
@@ -382,10 +432,15 @@ async (
         }
 
         // ==================================================
-        // 2. YOUTUBE LINK / SHORTS
+        // 2. VIDEO INFORMATION
         // ==================================================
 
-        let directYouTubeUrl = null;
+        let data;
+        let ytUrl;
+
+        // --------------------------------------------------
+        // DIRECT YOUTUBE / SHORTS LINK
+        // --------------------------------------------------
 
         if (
             isYouTubeUrl(query)
@@ -401,104 +456,103 @@ async (
                 );
             }
 
-            directYouTubeUrl =
-                normalizeYouTubeUrl(
+            console.log(
+                "Direct YouTube ID:",
+                videoId
+            );
+
+            // Get metadata by ID
+            data =
+                await getYouTubeInfo(
+                    query
+                );
+
+            // ALWAYS use clean URL
+            ytUrl =
+                cleanYouTubeUrl(
                     query
                 );
 
             console.log(
-                "YouTube URL:",
+                "Original URL:",
                 query
             );
 
             console.log(
-                "YouTube ID:",
-                videoId
-            );
-
-            console.log(
-                "Normalized URL:",
-                directYouTubeUrl
+                "Clean API URL:",
+                ytUrl
             );
         }
 
-        // ==================================================
-        // 3. YOUTUBE SEARCH
-        // ==================================================
+        // --------------------------------------------------
+        // NORMAL SEARCH QUERY
+        // --------------------------------------------------
 
-        let search;
+        else {
 
-        try {
+            let search;
 
-            if (directYouTubeUrl) {
-
-                // Search using the clean URL so yt-search
-                // can retrieve the correct metadata.
-
-                search =
-                    await yts(
-                        directYouTubeUrl
-                    );
-
-            } else {
+            try {
 
                 search =
                     await yts(
                         query
                     );
+
+            } catch (error) {
+
+                console.error(
+                    "YouTube Search Error:",
+                    error
+                );
+
+                return reply(
+                    "❌ YouTube search failed.\nPlease try again."
+                );
             }
 
-        } catch (error) {
+            if (
+                !search ||
+                !search.videos ||
+                !search.videos.length
+            ) {
 
-            console.error(
-                "YouTube Search Error:",
-                error
-            );
+                return reply(
+                    "*❌ No results found.*"
+                );
+            }
 
-            return reply(
-                "❌ YouTube search failed.\nPlease try again."
-            );
+            data =
+                search.videos[0];
+
+            ytUrl =
+                cleanYouTubeUrl(
+                    data.url
+                );
+
+            if (!ytUrl) {
+
+                ytUrl =
+                    data.url;
+            }
         }
 
-        if (
-            !search ||
-            !search.videos ||
-            !search.videos.length
-        ) {
+        // ==================================================
+        // SAFETY CHECK
+        // ==================================================
+
+        if (!data) {
 
             return reply(
                 "*❌ No results found.*"
             );
         }
 
-        // ==================================================
-        // 4. SELECT VIDEO
-        // ==================================================
+        if (!ytUrl) {
 
-        const data =
-            search.videos[0];
-
-        // ==================================================
-        // IMPORTANT:
-        // IF USER PROVIDED A YOUTUBE / SHORTS LINK,
-        // USE THAT EXACT VIDEO ID.
-        // ==================================================
-
-        let ytUrl =
-            directYouTubeUrl ||
-            data.url;
-
-        // If search returned a URL, normalize it too.
-
-        if (
-            !directYouTubeUrl &&
-            isYouTubeUrl(ytUrl)
-        ) {
-
-            ytUrl =
-                normalizeYouTubeUrl(
-                    ytUrl
-                );
+            return reply(
+                "❌ Unable to get YouTube URL."
+            );
         }
 
         console.log(
@@ -507,7 +561,7 @@ async (
         );
 
         // ==================================================
-        // 5. TEMPLATE
+        // 3. TEMPLATE
         // ==================================================
 
         const caption = `
@@ -538,7 +592,7 @@ async (
 > © Powered by 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝗗 🌛`;
 
         // ==================================================
-        // 6. SEND MENU
+        // 4. SEND ONLY ONE MENU
         // ==================================================
 
         const sentMsg =
@@ -549,7 +603,6 @@ async (
                         url:
                             data.thumbnail
                     },
-
                     caption:
                         caption
                 },
@@ -568,7 +621,7 @@ async (
         );
 
         // ==================================================
-        // 7. REPLY LISTENER
+        // 5. REPLY LISTENER
         // ==================================================
 
         replyHandler =
@@ -582,7 +635,8 @@ async (
                 try {
 
                     receivedMsg =
-                        msgData.messages?.[0];
+                        msgData
+                            .messages?.[0];
 
                     if (
                         !receivedMsg?.message
@@ -606,22 +660,26 @@ async (
                     }
 
                     // ==================================================
-                    // GET TEXT
+                    // GET MESSAGE TEXT
                     // ==================================================
 
                     const receivedText =
-                        receivedMsg.message
+                        receivedMsg
+                            .message
                             .conversation ||
 
-                        receivedMsg.message
+                        receivedMsg
+                            .message
                             .extendedTextMessage
                             ?.text ||
 
-                        receivedMsg.message
+                        receivedMsg
+                            .message
                             .imageMessage
                             ?.caption ||
 
-                        receivedMsg.message
+                        receivedMsg
+                            .message
                             .videoMessage
                             ?.caption ||
 
@@ -639,7 +697,7 @@ async (
                             .toLowerCase();
 
                     // ==================================================
-                    // CHECK REPLY
+                    // CHECK REPLY TO OUR MENU
                     // ==================================================
 
                     const contextInfo =
@@ -829,7 +887,7 @@ async (
                             );
 
                         console.log(
-                            "API:",
+                            "DOWNLOAD API:",
                             apiUrl
                         );
 
@@ -837,7 +895,6 @@ async (
                             await axios.get(
                                 apiUrl,
                                 {
-
                                     timeout:
                                         180000,
 
@@ -860,6 +917,10 @@ async (
                                     }
                                 }
                             );
+
+                        // ==================================================
+                        // HTTP ERROR
+                        // ==================================================
 
                         if (
                             response.status !==
@@ -903,6 +964,10 @@ async (
                                 2
                             )
                         );
+
+                        // ==================================================
+                        // API VALIDATION
+                        // ==================================================
 
                         if (
                             !apiRes ||
@@ -951,9 +1016,7 @@ async (
                         const audioUrl =
                             apiRes.result.audio;
 
-                        if (
-                            !videoUrl
-                        ) {
+                        if (!videoUrl) {
 
                             throw new Error(
                                 `No video URL found for ${selectedFormat}.`
@@ -1021,7 +1084,7 @@ async (
                         }
 
                         // ==================================================
-                        // VALIDATE FILE
+                        // FILE VALIDATION
                         // ==================================================
 
                         if (
@@ -1031,7 +1094,7 @@ async (
                         ) {
 
                             throw new Error(
-                                "Generated video file does not exist."
+                                "Generated video file is missing."
                             );
                         }
 
@@ -1039,11 +1102,6 @@ async (
                             fs.statSync(
                                 targetFile
                             ).size;
-
-                        console.log(
-                            "Final file size:",
-                            fileSize
-                        );
 
                         if (
                             fileSize <
@@ -1054,6 +1112,11 @@ async (
                                 "Generated video file is invalid."
                             );
                         }
+
+                        console.log(
+                            "Final file size:",
+                            fileSize
+                        );
 
                         // ==================================================
                         // UPLOAD REACTION
@@ -1108,7 +1171,6 @@ async (
                             await conn.sendMessage(
                                 senderID,
                                 {
-
                                     document: {
                                         url:
                                             targetFile
@@ -1119,7 +1181,6 @@ async (
 
                                     fileName:
                                         `${safeTitle} - ${selectedFormat}.mp4`
-
                                 },
                                 {
                                     quoted:
@@ -1138,7 +1199,6 @@ async (
                             await conn.sendMessage(
                                 senderID,
                                 {
-
                                     video: {
                                         url:
                                             targetFile
@@ -1154,7 +1214,6 @@ async (
 
                                     ptt:
                                         false
-
                                 },
                                 {
                                     quoted:
@@ -1164,7 +1223,7 @@ async (
                         }
 
                         // ==================================================
-                        // SUCCESS
+                        // SUCCESS REACTION
                         // ==================================================
 
                         await conn.sendMessage(
@@ -1277,7 +1336,7 @@ async (
             };
 
         // ==================================================
-        // 8. ADD LISTENER
+        // 6. ADD LISTENER
         // ==================================================
 
         conn.ev.on(
