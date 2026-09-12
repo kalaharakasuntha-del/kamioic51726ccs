@@ -8,8 +8,8 @@ const fetch = (...args) =>
     import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
 cmd({
-    pattern: "setpp3",
-    alias: ["setprofile3", "setbotpp3"],
+    pattern: "setpp",
+    alias: ["setprofile", "setdp"],
     desc: "Set bot profile picture from replied image",
     category: "owner",
     react: "🖼️",
@@ -18,7 +18,7 @@ cmd({
 async (conn, mek, m, { from, isOwner, reply }) => {
 
     if (!isOwner) {
-        return reply("❌ You are not the owner!");
+        return reply("*❌ You are not the owner!*");
     }
 
     try {
@@ -200,7 +200,7 @@ async (conn, mek, m, { from, isOwner, reply }) => {
 
         await conn.sendMessage(from, {
             react: {
-                text: "✅",
+                text: "✔️",
                 key: mek.key
             }
         });
