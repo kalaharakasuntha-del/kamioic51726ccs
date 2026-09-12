@@ -83,12 +83,13 @@ cmd({
 
         const ytUrl = data.url;
 
-        // 4️⃣ Define API links for download - USING MOVANEST API
+        // 4️⃣ Define API links - USING YTDLWSMD API
         const formats = {
-            "240p": `https://www.movanest.xyz/v2/ytdl2?input=${encodeURIComponent(ytUrl)}&format=video&quality=240p`,
-            "360p": `https://www.movanest.xyz/v2/ytdl2?input=${encodeURIComponent(ytUrl)}&format=video&quality=360p`,
-            "480p": `https://www.movanest.xyz/v2/ytdl2?input=${encodeURIComponent(ytUrl)}&format=video&quality=480p`,
-            "720p": `https://www.movanest.xyz/v2/ytdl2?input=${encodeURIComponent(ytUrl)}&format=video&quality=720p`
+            "144p": `https://api-ytdlwsmd-mini.vercel.app/api/download?url=${encodeURIComponent(ytUrl)}&quality=144p&mode=separate`,
+            "360p": `https://api-ytdlwsmd-mini.vercel.app/api/download?url=${encodeURIComponent(ytUrl)}&quality=360p&mode=separate`,
+            "480p": `https://api-ytdlwsmd-mini.vercel.app/api/download?url=${encodeURIComponent(ytUrl)}&quality=480p&mode=separate`,
+            "720p": `https://api-ytdlwsmd-mini.vercel.app/api/download?url=${encodeURIComponent(ytUrl)}&quality=720p&mode=separate`,
+            "1080p": `https://api-ytdlwsmd-mini.vercel.app/api/download?url=${encodeURIComponent(ytUrl)}&quality=1080p&mode=separate`
         };
 
         // 5️⃣ Send selection menu (image + caption)
@@ -104,16 +105,18 @@ cmd({
 🔢 *Reply Below Number*
 
 1. *Video FILE 📽️*
-   1.1 240p Qulity 📽️
+   1.1 144p Qulity 📽️
    1.2 360p Qulity 📽️
    1.3 480p Qulity 📽️
    1.4 720p Qulity 📽️
+   1.5 1080p Qulity 📽️
 
 2. *Document FILE 📂*
-   2.1 240p Qulity 📂
+   2.1 144p Qulity 📂
    2.2 360p Qulity 📂
    2.3 480p Qulity 📂
    2.4 720p Qulity 📂
+   2.5 1080p Qulity 📂
 
 > © Powered by 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝗗 🌛`;
 
@@ -152,7 +155,7 @@ cmd({
 
                     switch (receivedText.trim().toUpperCase()) {
                         case "1.1":
-                            selectedFormat = "240p";
+                            selectedFormat = "144p";
                             break;
 
                         case "1.2":
@@ -167,8 +170,12 @@ cmd({
                             selectedFormat = "720p";
                             break;
 
+                        case "1.5":
+                            selectedFormat = "1080p";
+                            break;
+
                         case "2.1":
-                            selectedFormat = "240p";
+                            selectedFormat = "144p";
                             isDocument = true;
                             break;
 
@@ -184,6 +191,11 @@ cmd({
 
                         case "2.4":
                             selectedFormat = "720p";
+                            isDocument = true;
+                            break;
+
+                        case "2.5":
+                            selectedFormat = "1080p";
                             isDocument = true;
                             break;
 
@@ -205,6 +217,7 @@ cmd({
 
                     try {
 
+                        // Fetch download information
                         const { data: apiRes } = await axios.get(
                             formats[selectedFormat],
                             {
@@ -212,14 +225,12 @@ cmd({
                             }
                         );
 
-                        // Check if Movanest API response is valid
+                        // Check API response
                         if (
                             !apiRes ||
                             !apiRes.status ||
-                            !apiRes.results ||
-                            !apiRes.results.success ||
-                            !apiRes.results.recommended ||
-                            !apiRes.results.recommended.dlurl
+                            !apiRes.result ||
+                            !apiRes.result.video
                         ) {
                             await conn.sendMessage(senderID, {
                                 react: {
@@ -239,8 +250,7 @@ cmd({
                             );
                         }
 
-                        const downloadUrl =
-                            apiRes.results.recommended.dlurl;
+                        const downloadUrl = apiRes.result.video;
 
                         // React ⬆️ before uploading
                         await conn.sendMessage(senderID, {
@@ -250,6 +260,10 @@ cmd({
                             }
                         });
 
+                        const safeTitle = data.title
+                            .replace(/[^\w\s-]/gi, '')
+                            .trim();
+
                         if (isDocument) {
 
                             await conn.sendMessage(senderID, {
@@ -257,7 +271,7 @@ cmd({
                                     url: downloadUrl
                                 },
                                 mimetype: "video/mp4",
-                                fileName: `${data.title.replace(/[^\w\s]/gi, '')}.mp4`
+                                fileName: `${safeTitle} - ${selectedFormat}.mp4`
                             }, {
                                 quoted: receivedMsg
                             });
