@@ -417,9 +417,12 @@ async (
 
         replyHandler = async (msgData) => {
 
+            let senderID;
+            let receivedMsg;
+
             try {
 
-                const receivedMsg =
+                receivedMsg =
                     msgData.messages?.[0];
 
                 if (!receivedMsg?.message) {
@@ -430,7 +433,7 @@ async (
                 // SAME CHAT ONLY
                 // ==================================================
 
-                const senderID =
+                senderID =
                     receivedMsg.key.remoteJid;
 
                 if (senderID !== from) {
@@ -992,15 +995,6 @@ async (
                     downloading = false;
                 }
 
-                // ==================================================
-                // REMOVE LISTENER AFTER SUCCESS
-                // ==================================================
-
-                conn.ev.off(
-                    "messages.upsert",
-                    replyHandler
-                );
-
             } catch (error) {
 
                 console.error(
@@ -1012,28 +1006,32 @@ async (
 
                 try {
 
-                    await conn.sendMessage(
-                        senderID,
-                        {
-                            react: {
-                                text: "❌",
-                                key: receivedMsg.key
-                            }
-                        }
-                    );
+                    if (senderID && receivedMsg) {
 
-                    await conn.sendMessage(
-                        senderID,
-                        {
-                            text:
-                                `❌ Error downloading ${selectedFormat || "video"}\n\n` +
-                                `${error.message}`
-                        },
-                        {
-                            quoted:
-                                receivedMsg
-                        }
-                    );
+                        await conn.sendMessage(
+                            senderID,
+                            {
+                                react: {
+                                    text: "❌",
+                                    key: receivedMsg.key
+                                }
+                            }
+                        );
+
+                        await conn.sendMessage(
+                            senderID,
+                            {
+                                text:
+                                    `❌ Error downloading ${selectedFormat || "video"}\n\n` +
+                                    `${error.message}`
+                            },
+                            {
+                                quoted:
+                                    receivedMsg
+                            }
+                        );
+
+                    }
 
                 } catch (sendError) {
 
