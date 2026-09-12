@@ -24,7 +24,7 @@ END:VCARD`
 
 cmd({
     pattern: "video",
-    alias: "ytvideo",
+    alias: ["ytvideo"],
     react: "🎬",
     desc: "Download YouTube MP4",
     category: "download",
@@ -49,14 +49,38 @@ cmd({
         // 2️⃣ Convert Shorts link to normal link
         if (query.includes("youtube.com/shorts/")) {
             const videoId = query.split("/shorts/")[1].split(/[?&]/)[0];
+
+            if (!videoId) {
+                return reply("❌ Invalid YouTube Shorts link.");
+            }
+
             query = `https://www.youtube.com/watch?v=${videoId}`;
         }
 
-        // 3️⃣ YouTube search
-        const search = await yts(query);
-        if (!search.videos.length) return reply("*❌ No results found.*");
+        // 3️⃣ YouTube search / direct URL
+        let data;
 
-        const data = search.videos[0];
+        if (
+            query.includes("youtube.com/watch?v=") ||
+            query.includes("youtu.be/")
+        ) {
+            const search = await yts(query);
+
+            if (!search.videos || !search.videos.length) {
+                return reply("*❌ No results found.*");
+            }
+
+            data = search.videos[0];
+        } else {
+            const search = await yts(query);
+
+            if (!search.videos || !search.videos.length) {
+                return reply("*❌ No results found.*");
+            }
+
+            data = search.videos[0];
+        }
+
         const ytUrl = data.url;
 
         // 4️⃣ Define API links for download - USING MOVANEST API
@@ -102,78 +126,196 @@ cmd({
 
         // 6️⃣ Listen for user replies
         conn.ev.on("messages.upsert", async (msgData) => {
-            const receivedMsg = msgData.messages[0];
-            if (!receivedMsg?.message) return;
+            try {
+                const receivedMsg = msgData.messages?.[0];
 
-            const receivedText =
-                receivedMsg.message.conversation ||
-                receivedMsg.message.extendedTextMessage?.text;
+                if (!receivedMsg?.message) return;
 
-            const senderID = receivedMsg.key.remoteJid;
-            const isReplyToBot =
-                receivedMsg.message.extendedTextMessage?.contextInfo?.stanzaId === messageID;
+                const receivedText =
+                    receivedMsg.message.conversation ||
+                    receivedMsg.message.extendedTextMessage?.text;
 
-            if (isReplyToBot && senderID === from) {
-                let selectedFormat, isDocument = false;
+                if (!receivedText) return;
 
-                switch (receivedText.trim().toUpperCase()) {
-                    case "1.1": selectedFormat = "240p"; break;
-                    case "1.2": selectedFormat = "360p"; break;
-                    case "1.3": selectedFormat = "480p"; break;
-                    case "1.4": selectedFormat = "720p"; break;
-                    case "2.1": selectedFormat = "240p"; isDocument = true; break;
-                    case "2.2": selectedFormat = "360p"; isDocument = true; break;
-                    case "2.3": selectedFormat = "480p"; isDocument = true; break;
-                    case "2.4": selectedFormat = "720p"; isDocument = true; break;
-                    default:
-                        return reply("*❌ Invalid option!*");
-                }
+                const senderID = receivedMsg.key.remoteJid;
 
-                // React ⬇️ when download starts
-                await conn.sendMessage(senderID, { react: { text: '⬇️', key: receivedMsg.key } });
+                const contextInfo =
+                    receivedMsg.message.extendedTextMessage?.contextInfo;
 
-                try {
-                    const { data: apiRes } = await axios.get(formats[selectedFormat]);
+                const isReplyToBot =
+                    contextInfo?.stanzaId === messageID;
 
-                    // Check if Movanest API response is valid
-                    if (!apiRes?.status || !apiRes?.results?.success || !apiRes.results.recommended?.dlurl) {
-                        await conn.sendMessage(senderID, { react: { text: '❌', key: receivedMsg.key } });
-                        return reply(`❌ Unable to download the ${selectedFormat} version. Try another one!`);
+                if (isReplyToBot && senderID === from) {
+
+                    let selectedFormat;
+                    let isDocument = false;
+
+                    switch (receivedText.trim().toUpperCase()) {
+                        case "1.1":
+                            selectedFormat = "240p";
+                            break;
+
+                        case "1.2":
+                            selectedFormat = "360p";
+                            break;
+
+                        case "1.3":
+                            selectedFormat = "480p";
+                            break;
+
+                        case "1.4":
+                            selectedFormat = "720p";
+                            break;
+
+                        case "2.1":
+                            selectedFormat = "240p";
+                            isDocument = true;
+                            break;
+
+                        case "2.2":
+                            selectedFormat = "360p";
+                            isDocument = true;
+                            break;
+
+                        case "2.3":
+                            selectedFormat = "480p";
+                            isDocument = true;
+                            break;
+
+                        case "2.4":
+                            selectedFormat = "720p";
+                            isDocument = true;
+                            break;
+
+                        default:
+                            return conn.sendMessage(
+                                senderID,
+                                { text: "*❌ Invalid option!*" },
+                                { quoted: receivedMsg }
+                            );
                     }
 
-                    const downloadUrl = apiRes.results.recommended.dlurl;
+                    // React ⬇️ when download starts
+                    await conn.sendMessage(senderID, {
+                        react: {
+                            text: '⬇️',
+                            key: receivedMsg.key
+                        }
+                    });
 
-                    // React ⬆️ before uploading
-                    await conn.sendMessage(senderID, { react: { text: '⬆️', key: receivedMsg.key } });
+                    try {
 
-                    if (isDocument) {
+                        const { data: apiRes } = await axios.get(
+                            formats[selectedFormat],
+                            {
+                                timeout: 120000
+                            }
+                        );
+
+                        // Check if Movanest API response is valid
+                        if (
+                            !apiRes ||
+                            !apiRes.status ||
+                            !apiRes.results ||
+                            !apiRes.results.success ||
+                            !apiRes.results.recommended ||
+                            !apiRes.results.recommended.dlurl
+                        ) {
+                            await conn.sendMessage(senderID, {
+                                react: {
+                                    text: '❌',
+                                    key: receivedMsg.key
+                                }
+                            });
+
+                            return conn.sendMessage(
+                                senderID,
+                                {
+                                    text: `❌ Unable to download the ${selectedFormat} version. Try another one!`
+                                },
+                                {
+                                    quoted: receivedMsg
+                                }
+                            );
+                        }
+
+                        const downloadUrl =
+                            apiRes.results.recommended.dlurl;
+
+                        // React ⬆️ before uploading
                         await conn.sendMessage(senderID, {
-                            document: { url: downloadUrl },
-                            mimetype: "video/mp4",
-                            fileName: `${data.title.replace(/[^\w\s]/gi, '')}.mp4`
-                        }, { quoted: receivedMsg });
-                    } else {
+                            react: {
+                                text: '⬆️',
+                                key: receivedMsg.key
+                            }
+                        });
+
+                        if (isDocument) {
+
+                            await conn.sendMessage(senderID, {
+                                document: {
+                                    url: downloadUrl
+                                },
+                                mimetype: "video/mp4",
+                                fileName: `${data.title.replace(/[^\w\s]/gi, '')}.mp4`
+                            }, {
+                                quoted: receivedMsg
+                            });
+
+                        } else {
+
+                            await conn.sendMessage(senderID, {
+                                video: {
+                                    url: downloadUrl
+                                },
+                                mimetype: "video/mp4",
+                                caption: `*${data.title}*\n*Quality:* ${selectedFormat}`,
+                                ptt: false,
+                            }, {
+                                quoted: receivedMsg
+                            });
+                        }
+
+                        // React ✅ after upload complete
                         await conn.sendMessage(senderID, {
-                            video: { url: downloadUrl },
-                            mimetype: "video/mp4",
-                            caption: `*${data.title}*\n*Quality:* ${selectedFormat}`,
-                            ptt: false,
-                        }, { quoted: receivedMsg });
+                            react: {
+                                text: '✔️',
+                                key: receivedMsg.key
+                            }
+                        });
+
+                    } catch (error) {
+
+                        console.error("API Error:", error);
+
+                        await conn.sendMessage(senderID, {
+                            react: {
+                                text: '❌',
+                                key: receivedMsg.key
+                            }
+                        });
+
+                        await conn.sendMessage(
+                            senderID,
+                            {
+                                text: `❌ Error downloading ${selectedFormat}: ${error.message}`
+                            },
+                            {
+                                quoted: receivedMsg
+                            }
+                        );
                     }
-
-                    // React ✅ after upload complete
-                    await conn.sendMessage(senderID, { react: { text: '✔️', key: receivedMsg.key } });
-
-                } catch (error) {
-                    console.error("API Error:", error);
-                    await conn.sendMessage(senderID, { react: { text: '❌', key: receivedMsg.key } });
-                    reply(`❌ Error downloading ${selectedFormat}: ${error.message}`);
                 }
+
+            } catch (listenerError) {
+                console.error("Reply Listener Error:", listenerError);
             }
         });
 
     } catch (error) {
+
         console.error("Video Command Error:", error);
+
         reply("❌ An error occurred while processing your request. Please try again later.");
     }
 });
