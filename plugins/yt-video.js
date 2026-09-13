@@ -84,7 +84,6 @@ function getYouTubeId(url) {
             .toLowerCase()
             .replace(/^www\./, "");
 
-        // youtu.be
         if (host === "youtu.be") {
             return u.pathname
                 .replace(/^\/+/, "")
@@ -92,7 +91,6 @@ function getYouTubeId(url) {
                 .trim();
         }
 
-        // Shorts
         if (u.pathname.startsWith("/shorts/")) {
             return u.pathname
                 .split("/shorts/")[1]
@@ -100,14 +98,12 @@ function getYouTubeId(url) {
                 .trim();
         }
 
-        // Watch
         const v = u.searchParams.get("v");
 
         if (v) {
             return v.trim();
         }
 
-        // Embed
         if (u.pathname.startsWith("/embed/")) {
             return u.pathname
                 .split("/embed/")[1]
@@ -136,7 +132,7 @@ function cleanYouTubeUrl(url) {
 }
 
 // ======================================================
-// GET YOUTUBE INFO
+// GET VIDEO INFO
 // ======================================================
 
 async function getYouTubeInfo(url) {
@@ -144,18 +140,24 @@ async function getYouTubeInfo(url) {
     const videoId = getYouTubeId(url);
 
     if (!videoId) {
-        throw new Error("Invalid YouTube video ID.");
+        throw new Error(
+            "Invalid YouTube video ID."
+        );
     }
 
-    console.log("YouTube Video ID:", videoId);
+    console.log(
+        "YouTube Video ID:",
+        videoId
+    );
 
-    let result = null;
+    let result;
 
     try {
 
-        result = await yts({
-            videoId: videoId
-        });
+        result =
+            await yts({
+                videoId
+            });
 
     } catch (error) {
 
@@ -165,7 +167,6 @@ async function getYouTubeInfo(url) {
         );
     }
 
-    // Direct result
     if (
         result &&
         result.videoId
@@ -173,14 +174,12 @@ async function getYouTubeInfo(url) {
         return result;
     }
 
-    // Result videos
     if (
         result?.videos?.length
     ) {
         return result.videos[0];
     }
 
-    // Fallback search
     try {
 
         const search =
@@ -239,7 +238,7 @@ function createApiUrl(
 }
 
 // ======================================================
-// DOWNLOAD STREAM - OPTIMIZED
+// DOWNLOAD STREAM
 // ======================================================
 
 async function downloadFile(
@@ -251,15 +250,20 @@ async function downloadFile(
         await axios.get(
             url,
             {
-                responseType: "stream",
+                responseType:
+                    "stream",
 
-                timeout: 180000,
+                timeout:
+                    600000,
 
-                maxContentLength: Infinity,
+                maxContentLength:
+                    Infinity,
 
-                maxBodyLength: Infinity,
+                maxBodyLength:
+                    Infinity,
 
-                decompress: true,
+                decompress:
+                    true,
 
                 headers: {
                     "User-Agent":
@@ -286,6 +290,30 @@ async function downloadFile(
                     }
                 );
 
+            let finished =
+                false;
+
+            const cleanup =
+                () => {
+
+                    response.data?.destroy();
+
+                    writer.destroy();
+
+                    if (
+                        fs.existsSync(
+                            outputPath
+                        )
+                    ) {
+
+                        try {
+                            fs.unlinkSync(
+                                outputPath
+                            );
+                        } catch {}
+                    }
+                };
+
             response.data.pipe(
                 writer
             );
@@ -293,6 +321,11 @@ async function downloadFile(
             writer.on(
                 "finish",
                 () => {
+
+                    if (finished)
+                        return;
+
+                    finished = true;
 
                     writer.close();
 
@@ -304,12 +337,32 @@ async function downloadFile(
 
             writer.on(
                 "error",
-                reject
+                error => {
+
+                    if (finished)
+                        return;
+
+                    finished = true;
+
+                    cleanup();
+
+                    reject(error);
+                }
             );
 
             response.data.on(
                 "error",
-                reject
+                error => {
+
+                    if (finished)
+                        return;
+
+                    finished = true;
+
+                    cleanup();
+
+                    reject(error);
+                }
             );
         }
     );
@@ -336,16 +389,16 @@ function mergeVideoAndAudio(
                     "-map 0:v:0",
                     "-map 1:a:0",
 
-                    // DO NOT RE-ENCODE VIDEO
+                    // VIDEO RE-ENCODE DISABLED
                     "-c:v copy",
 
-                    // Fast audio encoding
+                    // AUDIO
                     "-c:a aac",
                     "-b:a 128k",
 
                     "-shortest",
 
-                    // MP4 optimization
+                    // STREAMABLE MP4
                     "-movflags +faststart",
 
                     "-threads 0"
@@ -357,8 +410,7 @@ function mergeVideoAndAudio(
                     "start",
                     command => {
                         console.log(
-                            "FFmpeg:",
-                            command
+                            "FFmpeg started"
                         );
                     }
                 )
@@ -366,6 +418,7 @@ function mergeVideoAndAudio(
                 .on(
                     "end",
                     () => {
+
                         resolve(
                             outputPath
                         );
@@ -374,7 +427,15 @@ function mergeVideoAndAudio(
 
                 .on(
                     "error",
-                    reject
+                    error => {
+
+                        console.error(
+                            "FFmpeg Error:",
+                            error.message
+                        );
+
+                        reject(error);
+                    }
                 )
 
                 .save(
@@ -385,27 +446,66 @@ function mergeVideoAndAudio(
 }
 
 // ======================================================
-// CHECK FILE
+// VALIDATE FILE
 // ======================================================
 
-function isValidFile(file) {
+function validateFile(
+    filePath
+) {
+
+    if (
+        !fs.existsSync(
+            filePath
+        )
+    ) {
+        return false;
+    }
 
     try {
 
-        if (
-            !fs.existsSync(file)
-        ) {
-            return false;
-        }
+        const stat =
+            fs.statSync(
+                filePath
+            );
 
-        const size =
-            fs.statSync(file).size;
-
-        return size > 1000;
+        return (
+            stat.isFile() &&
+            stat.size > 1000
+        );
 
     } catch {
 
         return false;
+    }
+}
+
+// ======================================================
+// DELETE FILE SAFE
+// ======================================================
+
+function deleteFile(
+    filePath
+) {
+
+    try {
+
+        if (
+            fs.existsSync(
+                filePath
+            )
+        ) {
+
+            fs.unlinkSync(
+                filePath
+            );
+        }
+
+    } catch (error) {
+
+        console.log(
+            "Delete error:",
+            error.message
+        );
     }
 }
 
@@ -449,6 +549,7 @@ async (
             !query &&
             m?.quoted
         ) {
+
             query =
                 getReplyText(m);
         }
@@ -472,7 +573,7 @@ async (
         let ytUrl;
 
         // ==================================================
-        // DIRECT YOUTUBE / SHORTS
+        // DIRECT YOUTUBE LINK
         // ==================================================
 
         if (
@@ -504,14 +605,10 @@ async (
                     query
                 );
 
-            console.log(
-                "Clean API URL:",
-                ytUrl
-            );
         }
 
         // ==================================================
-        // NORMAL SEARCH
+        // SEARCH
         // ==================================================
 
         else {
@@ -586,7 +683,7 @@ async (
         );
 
         // ==================================================
-        // 3. ORIGINAL TEMPLATE
+        // 3. TEMPLATE
         // ==================================================
 
         const caption = `
@@ -685,7 +782,7 @@ async (
                     }
 
                     // ==================================================
-                    // GET TEXT
+                    // MESSAGE TEXT
                     // ==================================================
 
                     const receivedText =
@@ -864,7 +961,7 @@ async (
                     const uniqueID =
                         `${Date.now()}_${Math.random()
                             .toString(36)
-                            .substring(2, 8)}`;
+                            .substring(2, 10)}`;
 
                     const videoInput =
                         path.join(
@@ -884,13 +981,10 @@ async (
                             `${uniqueID}_final.mp4`
                         );
 
-                    let targetFile =
-                        finalOutput;
-
                     try {
 
                         // ==================================================
-                        // API REQUEST
+                        // API
                         // ==================================================
 
                         const apiUrl =
@@ -909,7 +1003,7 @@ async (
                                 apiUrl,
                                 {
                                     timeout:
-                                        180000,
+                                        600000,
 
                                     maxContentLength:
                                         Infinity,
@@ -981,7 +1075,7 @@ async (
                         );
 
                         // ==================================================
-                        // API VALIDATION
+                        // VALIDATION
                         // ==================================================
 
                         if (
@@ -1014,15 +1108,11 @@ async (
                             );
                         }
 
-                        // ==================================================
-                        // RESULT
-                        // ==================================================
-
                         const result =
                             apiRes.result;
 
                         // ==================================================
-                        // COMBINED VIDEO URL
+                        // URL DETECTION
                         // ==================================================
 
                         const combinedUrl =
@@ -1030,48 +1120,23 @@ async (
                             result.videoUrl ||
                             result.mp4 ||
                             result.combined ||
-                            result.file;
-
-                        // ==================================================
-                        // VIDEO URL
-                        // ==================================================
+                            null;
 
                         const videoUrl =
                             result.video ||
                             result.url ||
-                            result.download;
-
-                        // ==================================================
-                        // AUDIO URL
-                        // ==================================================
+                            result.download ||
+                            null;
 
                         const audioUrl =
-                            result.audio;
+                            result.audio ||
+                            null;
 
-                        console.log(
-                            "Combined URL:",
-                            combinedUrl
-                                ? "YES"
-                                : "NO"
-                        );
-
-                        console.log(
-                            "Video URL:",
-                            videoUrl
-                                ? "YES"
-                                : "NO"
-                        );
-
-                        console.log(
-                            "Audio URL:",
-                            audioUrl
-                                ? "YES"
-                                : "NO"
-                        );
+                        let targetFile =
+                            finalOutput;
 
                         // ==================================================
-                        // FAST PATH
-                        // COMBINED MP4
+                        // COMBINED VIDEO
                         // ==================================================
 
                         if (
@@ -1079,7 +1144,7 @@ async (
                         ) {
 
                             console.log(
-                                "Using combined MP4 - no FFmpeg merge."
+                                "Downloading combined video..."
                             );
 
                             await downloadFile(
@@ -1101,7 +1166,7 @@ async (
                         ) {
 
                             console.log(
-                                "Downloading video + audio in parallel..."
+                                "Downloading video and audio simultaneously..."
                             );
 
                             await Promise.all([
@@ -1116,12 +1181,28 @@ async (
                                 )
                             ]);
 
-                            console.log(
-                                "Video + audio downloaded."
-                            );
+                            if (
+                                !validateFile(
+                                    videoInput
+                                )
+                            ) {
+                                throw new Error(
+                                    "Video download incomplete."
+                                );
+                            }
+
+                            if (
+                                !validateFile(
+                                    audioInput
+                                )
+                            ) {
+                                throw new Error(
+                                    "Audio download incomplete."
+                                );
+                            }
 
                             console.log(
-                                "Fast FFmpeg merge..."
+                                "Merging..."
                             );
 
                             await mergeVideoAndAudio(
@@ -1142,10 +1223,6 @@ async (
                             videoUrl
                         ) {
 
-                            console.log(
-                                "Video only."
-                            );
-
                             await downloadFile(
                                 videoUrl,
                                 finalOutput
@@ -1158,33 +1235,38 @@ async (
                         else {
 
                             throw new Error(
-                                `No downloadable URL found for ${selectedFormat}.`
+                                "No downloadable video URL found."
                             );
                         }
 
                         // ==================================================
-                        // VALIDATE
+                        // FINAL VALIDATION
                         // ==================================================
 
                         if (
-                            !isValidFile(
+                            !validateFile(
                                 targetFile
                             )
                         ) {
 
                             throw new Error(
-                                "Generated video file is invalid or empty."
+                                "Video file is empty or incomplete."
                             );
                         }
 
-                        const fileSize =
+                        const finalSize =
                             fs.statSync(
                                 targetFile
                             ).size;
 
                         console.log(
-                            "Final file size:",
-                            fileSize
+                            "FINAL SIZE:",
+                            (
+                                finalSize /
+                                1024 /
+                                1024
+                            ).toFixed(2),
+                            "MB"
                         );
 
                         // ==================================================
@@ -1307,34 +1389,17 @@ async (
                         // CLEANUP
                         // ==================================================
 
-                        for (
-                            const file of [
-                                videoInput,
-                                audioInput,
-                                finalOutput
-                            ]
-                        ) {
+                        deleteFile(
+                            videoInput
+                        );
 
-                            try {
+                        deleteFile(
+                            audioInput
+                        );
 
-                                if (
-                                    fs.existsSync(
-                                        file
-                                    )
-                                ) {
-                                    fs.unlinkSync(
-                                        file
-                                    );
-                                }
-
-                            } catch (e) {
-
-                                console.error(
-                                    "Cleanup Error:",
-                                    e.message
-                                );
-                            }
-                        }
+                        deleteFile(
+                            finalOutput
+                        );
                     }
 
                 } catch (error) {
