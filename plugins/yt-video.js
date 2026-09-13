@@ -1,6 +1,5 @@
 const axios = require("axios");
 const yts = require("yt-search");
-const ytdl = require("@distube/ytdl-core");
 const { cmd } = require("../command");
 const fs = require("fs");
 const path = require("path");
@@ -21,56 +20,33 @@ const fakevCard = {
             displayName: "© Mr Hiruka",
             vcard: `BEGIN:VCARD
 VERSION:3.0
-FN:Meta
-ORG:META AI;
-TEL;type=CELL;type=VOICE;waid=94762095304:+94762095304
+FN:ChatGPT
+ORG:RANUMITHA-X-MD;
+TEL;type=CELL;type=VOICE;waid=94700000000:+94 70 000 0000
 END:VCARD`
         }
     }
 };
 
 // ======================================================
-// GET TEXT FROM REPLIED MESSAGE
+// API
+// ======================================================
+
+const API_URL =
+    "https://api-ytdlwsmd-mini.vercel.app/api/download";
+
+// ======================================================
+// REPLY TEXT
 // ======================================================
 
 function getReplyText(m) {
-    if (!m?.quoted) return "";
-
     return (
-        m.quoted.message?.conversation ||
-        m.quoted.message?.extendedTextMessage?.text ||
-        m.quoted.message?.imageMessage?.caption ||
-        m.quoted.message?.videoMessage?.caption ||
-        m.quoted.message?.documentMessage?.caption ||
-        m.quoted.text ||
+        m?.message?.conversation ||
+        m?.message?.extendedTextMessage?.text ||
+        m?.message?.imageMessage?.caption ||
+        m?.message?.videoMessage?.caption ||
         ""
     ).trim();
-}
-
-// ======================================================
-// YOUTUBE URL CHECK
-// ======================================================
-
-function isYouTubeUrl(text) {
-    if (!text) return false;
-
-    try {
-        const u = new URL(text.trim());
-
-        const host = u.hostname
-            .toLowerCase()
-            .replace(/^www\./, "");
-
-        return (
-            host === "youtube.com" ||
-            host === "m.youtube.com" ||
-            host === "music.youtube.com" ||
-            host === "youtu.be"
-        );
-
-    } catch {
-        return false;
-    }
 }
 
 // ======================================================
@@ -78,60 +54,38 @@ function isYouTubeUrl(text) {
 // ======================================================
 
 function getYouTubeId(url) {
+    if (!url) return null;
 
     try {
+        const u = new URL(url);
 
-        const u = new URL(url.trim());
-
-        const host =
-            u.hostname
-                .toLowerCase()
-                .replace(/^www\./, "");
-
-        // youtu.be
-        if (host === "youtu.be") {
-
-            return u.pathname
-                .replace(/^\/+/, "")
-                .split("/")[0]
-                .trim();
+        if (u.hostname.includes("youtu.be")) {
+            return u.pathname.split("/")[1] || null;
         }
 
-        // Shorts
-        if (
-            u.pathname.startsWith("/shorts/")
-        ) {
+        if (u.hostname.includes("youtube.com")) {
 
-            return u.pathname
-                .split("/shorts/")[1]
-                .split("/")[0]
-                .trim();
+            // /watch?v=
+            if (u.searchParams.get("v")) {
+                return u.searchParams.get("v");
+            }
+
+            // /shorts/ID
+            if (u.pathname.startsWith("/shorts/")) {
+                return u.pathname.split("/")[2] || null;
+            }
+
+            // /embed/ID
+            if (u.pathname.startsWith("/embed/")) {
+                return u.pathname.split("/")[2] || null;
+            }
         }
 
-        // Watch
-        const v =
-            u.searchParams.get("v");
-
-        if (v) {
-            return v.trim();
-        }
-
-        // Embed
-        if (
-            u.pathname.startsWith("/embed/")
-        ) {
-
-            return u.pathname
-                .split("/embed/")[1]
-                .split("/")[0]
-                .trim();
-        }
-
-        return null;
-
-    } catch {
+    } catch (e) {
         return null;
     }
+
+    return null;
 }
 
 // ======================================================
@@ -139,9 +93,7 @@ function getYouTubeId(url) {
 // ======================================================
 
 function normalizeYouTubeUrl(url) {
-
-    const id =
-        getYouTubeId(url);
+    const id = getYouTubeId(url);
 
     if (!id) return null;
 
@@ -149,520 +101,412 @@ function normalizeYouTubeUrl(url) {
 }
 
 // ======================================================
-// QUALITY NUMBER
+// QUALITY
 // ======================================================
 
-function qualityHeight(quality) {
+function validQuality(q) {
+    const allowed = ["144", "360", "480", "720", "1080"];
 
-    const map = {
-        "144p": 144,
-        "360p": 360,
-        "480p": 480,
-        "720p": 720,
-        "1080p": 1080
-    };
-
-    return map[quality] || 360;
+    return allowed.includes(String(q))
+        ? String(q)
+        : "360";
 }
 
 // ======================================================
-// DOWNLOAD YOUTUBE VIDEO DIRECTLY
+// TEMP DIRECTORY
 // ======================================================
 
-async function downloadYouTubeVideo(
-    url,
-    quality,
-    outputPath
-) {
+const TEMP_DIR = path.join(process.cwd(), "temp");
 
-    console.log(
-        "Starting direct YouTube download..."
-    );
+if (!fs.existsSync(TEMP_DIR)) {
+    fs.mkdirSync(TEMP_DIR, {
+        recursive: true
+    });
+}
 
-    console.log(
-        "URL:",
-        url
-    );
+// ======================================================
+// DOWNLOAD FILE FROM API
+// ======================================================
 
-    console.log(
-        "Quality:",
-        quality
-    );
+async function downloadFile(url, outputPath) {
 
-    // ==================================================
-    // GET VIDEO INFO
-    // ==================================================
-
-    const info =
-        await ytdl.getInfo(url);
-
-    if (
-        !info ||
-        !info.videoDetails
-    ) {
-
-        throw new Error(
-            "Unable to get YouTube video information."
-        );
+    if (!url) {
+        throw new Error("Download URL not found");
     }
 
-    const requestedHeight =
-        qualityHeight(quality);
+    const response = await axios({
+        method: "GET",
+        url: url,
+        responseType: "stream",
 
-    console.log(
-        "Requested height:",
-        requestedHeight
-    );
+        // IMPORTANT FOR LONG VIDEOS
+        timeout: 0,
 
-    // ==================================================
-    // FIND VIDEO FORMAT
-    // ==================================================
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
 
-    let videoFormats =
-        info.formats.filter(
-            format =>
-                format.hasVideo &&
-                !format.hasAudio &&
-                format.container === "mp4" &&
-                format.height
-        );
+        headers: {
+            "User-Agent":
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/139 Safari/537.36",
+            "Accept": "*/*",
+            "Connection": "keep-alive"
+        }
+    });
 
-    // --------------------------------------------------
-    // First try requested quality or lower
-    // --------------------------------------------------
+    return new Promise((resolve, reject) => {
 
-    let possibleVideoFormats =
-        videoFormats.filter(
-            format =>
-                format.height <=
-                requestedHeight
-        );
+        const writer = fs.createWriteStream(outputPath);
 
-    // --------------------------------------------------
-    // If no lower format exists,
-    // use the lowest available MP4 video
-    // --------------------------------------------------
+        response.data.pipe(writer);
 
-    if (
-        !possibleVideoFormats.length
-    ) {
+        response.data.on("error", reject);
+        writer.on("error", reject);
 
-        possibleVideoFormats =
-            videoFormats;
+        writer.on("finish", () => {
+            resolve(outputPath);
+        });
+    });
+}
+
+// ======================================================
+// GET API RESPONSE
+// ======================================================
+
+async function getApiData(videoUrl, quality) {
+
+    const url =
+        `${API_URL}?url=${encodeURIComponent(videoUrl)}` +
+        `&quality=${encodeURIComponent(quality)}` +
+        `&mode=separate`;
+
+    const response = await axios.get(url, {
+        timeout: 120000,
+
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
+
+        headers: {
+            "User-Agent":
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/139 Safari/537.36",
+            "Accept": "application/json"
+        }
+    });
+
+    if (!response.data) {
+        throw new Error("Empty API response");
     }
 
-    if (
-        !possibleVideoFormats.length
-    ) {
+    return response.data;
+}
 
-        throw new Error(
-            `No MP4 video stream available for ${quality}.`
-        );
+// ======================================================
+// FIND URL INSIDE API RESPONSE
+// ======================================================
+
+function findUrl(obj, keys = []) {
+
+    if (!obj) return null;
+
+    if (typeof obj === "string") {
+
+        if (
+            obj.startsWith("http://") ||
+            obj.startsWith("https://")
+        ) {
+            return obj;
+        }
+
+        return null;
     }
 
-    // ==================================================
-    // SORT VIDEO
-    // ==================================================
+    if (Array.isArray(obj)) {
 
-    possibleVideoFormats.sort(
-        (a, b) => {
+        for (const item of obj) {
+
+            const result = findUrl(item, keys);
+
+            if (result) return result;
+        }
+
+        return null;
+    }
+
+    if (typeof obj === "object") {
+
+        // Preferred keys first
+        for (const key of keys) {
 
             if (
-                b.height !==
-                a.height
+                obj[key] &&
+                typeof obj[key] === "string" &&
+                (
+                    obj[key].startsWith("http://") ||
+                    obj[key].startsWith("https://")
+                )
             ) {
-
-                return (
-                    b.height -
-                    a.height
-                );
+                return obj[key];
             }
-
-            return (
-                (b.bitrate || 0) -
-                (a.bitrate || 0)
-            );
-        }
-    );
-
-    const videoFormat =
-        possibleVideoFormats[0];
-
-    console.log(
-        "Selected video:",
-        videoFormat.height +
-        "p",
-        videoFormat.container
-    );
-
-    // ==================================================
-    // FIND AUDIO
-    // ==================================================
-
-    let audioFormats =
-        info.formats.filter(
-            format =>
-                format.hasAudio &&
-                !format.hasVideo
-        );
-
-    if (
-        !audioFormats.length
-    ) {
-
-        throw new Error(
-            "No audio stream available."
-        );
-    }
-
-    // Prefer m4a because final file is MP4
-    const m4aFormats =
-        audioFormats.filter(
-            format =>
-                format.container ===
-                "mp4"
-        );
-
-    if (
-        m4aFormats.length
-    ) {
-
-        audioFormats =
-            m4aFormats;
-    }
-
-    // ==================================================
-    // SORT AUDIO
-    // ==================================================
-
-    audioFormats.sort(
-        (a, b) =>
-            (b.audioBitrate || 0) -
-            (a.audioBitrate || 0)
-    );
-
-    const audioFormat =
-        audioFormats[0];
-
-    console.log(
-        "Selected audio:",
-        audioFormat.container,
-        audioFormat.audioBitrate
-    );
-
-    // ==================================================
-    // TEMP FILES
-    // ==================================================
-
-    const tempVideo =
-        outputPath.replace(
-            ".mp4",
-            "_video.mp4"
-        );
-
-    const tempAudio =
-        outputPath.replace(
-            ".mp4",
-            "_audio.m4a"
-        );
-
-    // ==================================================
-    // DOWNLOAD VIDEO
-    // ==================================================
-
-    console.log(
-        "Downloading video stream..."
-    );
-
-    await downloadStream(
-        videoFormat.url,
-        tempVideo
-    );
-
-    console.log(
-        "Video stream downloaded."
-    );
-
-    // ==================================================
-    // DOWNLOAD AUDIO
-    // ==================================================
-
-    console.log(
-        "Downloading audio stream..."
-    );
-
-    await downloadStream(
-        audioFormat.url,
-        tempAudio
-    );
-
-    console.log(
-        "Audio stream downloaded."
-    );
-
-    // ==================================================
-    // MERGE
-    // ==================================================
-
-    console.log(
-        "Merging video + audio..."
-    );
-
-    await mergeVideoAudio(
-        tempVideo,
-        tempAudio,
-        outputPath
-    );
-
-    // ==================================================
-    // CLEAN TEMP
-    // ==================================================
-
-    try {
-
-        if (
-            fs.existsSync(tempVideo)
-        ) {
-            fs.unlinkSync(
-                tempVideo
-            );
         }
 
-        if (
-            fs.existsSync(tempAudio)
-        ) {
-            fs.unlinkSync(
-                tempAudio
-            );
+        for (const key of Object.keys(obj)) {
+
+            const result = findUrl(obj[key], keys);
+
+            if (result) return result;
         }
-
-    } catch (e) {
-
-        console.log(
-            "Temp cleanup:",
-            e.message
-        );
     }
 
-    // ==================================================
-    // VALIDATE
-    // ==================================================
-
-    if (
-        !fs.existsSync(outputPath)
-    ) {
-
-        throw new Error(
-            "Final video was not created."
-        );
-    }
-
-    const size =
-        fs.statSync(
-            outputPath
-        ).size;
-
-    if (
-        size < 1000
-    ) {
-
-        throw new Error(
-            "Final video file is invalid."
-        );
-    }
-
-    console.log(
-        "Final video size:",
-        size
-    );
-
-    return outputPath;
+    return null;
 }
 
 // ======================================================
-// DOWNLOAD HTTP STREAM
+// GET VIDEO + AUDIO URL FROM API
 // ======================================================
 
-function downloadStream(
-    url,
-    outputPath
-) {
+function extractStreams(data) {
 
-    return new Promise(
-        async (resolve, reject) => {
+    const videoKeys = [
+        "video",
+        "videoUrl",
+        "video_url",
+        "videoURL",
+        "download",
+        "downloadUrl",
+        "download_url",
+        "url"
+    ];
 
-            try {
+    const audioKeys = [
+        "audio",
+        "audioUrl",
+        "audio_url",
+        "audioURL"
+    ];
 
-                const response =
-                    await axios.get(
-                        url,
-                        {
-                            responseType:
-                                "stream",
+    let videoUrl = null;
+    let audioUrl = null;
 
-                            timeout:
-                                0,
+    // Common structure
+    const result = data?.result || data?.data || data;
 
-                            maxContentLength:
-                                Infinity,
+    if (result?.video) {
+        videoUrl =
+            typeof result.video === "string"
+                ? result.video
+                : findUrl(result.video, videoKeys);
+    }
 
-                            maxBodyLength:
-                                Infinity,
+    if (result?.audio) {
+        audioUrl =
+            typeof result.audio === "string"
+                ? result.audio
+                : findUrl(result.audio, audioKeys);
+    }
 
-                            headers: {
-                                "User-Agent":
-                                    "Mozilla/5.0"
-                            }
-                        }
-                    );
+    // Generic fallback
+    if (!videoUrl) {
+        videoUrl = findUrl(result, videoKeys);
+    }
 
-                const writer =
-                    fs.createWriteStream(
-                        outputPath
-                    );
+    if (!audioUrl) {
+        audioUrl = findUrl(result, audioKeys);
+    }
 
-                response.data.pipe(
-                    writer
-                );
-
-                response.data.on(
-                    "error",
-                    reject
-                );
-
-                writer.on(
-                    "finish",
-                    () => {
-
-                        writer.close();
-
-                        resolve(
-                            outputPath
-                        );
-                    }
-                );
-
-                writer.on(
-                    "error",
-                    reject
-                );
-
-            } catch (error) {
-
-                reject(error);
-            }
-        }
-    );
+    return {
+        videoUrl,
+        audioUrl
+    };
 }
 
 // ======================================================
 // MERGE VIDEO + AUDIO
 // ======================================================
 
-function mergeVideoAudio(
-    videoPath,
-    audioPath,
-    outputPath
-) {
+function mergeVideoAudio(videoPath, audioPath, outputPath) {
 
-    return new Promise(
-        (resolve, reject) => {
+    return new Promise((resolve, reject) => {
 
-            ffmpeg()
+        ffmpeg()
 
-                .input(videoPath)
+            .input(videoPath)
+            .input(audioPath)
 
-                .input(audioPath)
+            .outputOptions([
+                "-map 0:v:0",
+                "-map 1:a:0",
 
-                .outputOptions([
+                "-c:v copy",
+                "-c:a aac",
 
-                    "-map 0:v:0",
+                "-b:a 128k",
 
-                    "-map 1:a:0",
+                "-movflags +faststart",
 
-                    "-c:v copy",
+                "-shortest"
+            ])
 
-                    "-c:a aac",
+            .on("start", command => {
+                console.log("FFmpeg:", command);
+            })
 
-                    "-b:a 128k",
+            .on("progress", progress => {
+                if (progress.percent) {
+                    console.log(
+                        `Merge: ${progress.percent.toFixed(1)}%`
+                    );
+                }
+            })
 
-                    "-movflags +faststart",
+            .on("error", error => {
+                console.error("FFmpeg Error:", error);
+                reject(error);
+            })
 
-                    "-shortest"
+            .on("end", () => {
+                resolve(outputPath);
+            })
 
-                ])
-
-                .output(outputPath)
-
-                .on(
-                    "start",
-                    command => {
-
-                        console.log(
-                            "FFmpeg:",
-                            command
-                        );
-                    }
-                )
-
-                .on(
-                    "progress",
-                    progress => {
-
-                        if (
-                            progress.percent
-                        ) {
-
-                            console.log(
-                                `Merge: ${progress.percent.toFixed(1)}%`
-                            );
-                        }
-                    }
-                )
-
-                .on(
-                    "end",
-                    () => {
-
-                        console.log(
-                            "Merge completed."
-                        );
-
-                        resolve(
-                            outputPath
-                        );
-                    }
-                )
-
-                .on(
-                    "error",
-                    error => {
-
-                        console.error(
-                            "FFmpeg Error:",
-                            error
-                        );
-
-                        reject(error);
-                    }
-                )
-
-                .run();
-        }
-    );
+            .save(outputPath);
+    });
 }
 
 // ======================================================
-// MAIN COMMAND
+// DOWNLOAD USING API
 // ======================================================
 
-cmd({
+async function downloadUsingAPI(videoUrl, quality) {
+
+    const apiData =
+        await getApiData(videoUrl, quality);
+
+    console.log(
+        "API RESPONSE:",
+        JSON.stringify(apiData).slice(0, 3000)
+    );
+
+    const streams =
+        extractStreams(apiData);
+
+    if (!streams.videoUrl) {
+        throw new Error(
+            "API did not return a video URL"
+        );
+    }
+
+    const id =
+        `${Date.now()}_${Math.random()
+            .toString(36)
+            .substring(2, 8)}`;
+
+    const videoPath =
+        path.join(
+            TEMP_DIR,
+            `${id}_video.mp4`
+        );
+
+    const audioPath =
+        path.join(
+            TEMP_DIR,
+            `${id}_audio.m4a`
+        );
+
+    const outputPath =
+        path.join(
+            TEMP_DIR,
+            `${id}_final.mp4`
+        );
+
+    try {
+
+        // ==================================================
+        // VIDEO DOWNLOAD
+        // ==================================================
+
+        await downloadFile(
+            streams.videoUrl,
+            videoPath
+        );
+
+        // ==================================================
+        // IF API RETURNS AUDIO
+        // ==================================================
+
+        if (streams.audioUrl) {
+
+            await downloadFile(
+                streams.audioUrl,
+                audioPath
+            );
+
+            await mergeVideoAudio(
+                videoPath,
+                audioPath,
+                outputPath
+            );
+
+        } else {
+
+            // API already returned combined video
+            fs.renameSync(
+                videoPath,
+                outputPath
+            );
+        }
+
+        // ==================================================
+        // VALIDATE
+        // ==================================================
+
+        if (
+            !fs.existsSync(outputPath) ||
+            fs.statSync(outputPath).size < 10000
+        ) {
+            throw new Error(
+                "Downloaded file is invalid"
+            );
+        }
+
+        return {
+            file: outputPath,
+            title:
+                apiData?.result?.title ||
+                apiData?.data?.title ||
+                "YouTube Video"
+        };
+
+    } catch (error) {
+
+        // Cleanup
+        for (const file of [
+            videoPath,
+            audioPath,
+            outputPath
+        ]) {
+
+            try {
+
+                if (fs.existsSync(file)) {
+                    fs.unlinkSync(file);
+                }
+
+            } catch (_) {}
+        }
+
+        throw error;
+    }
+}
+
+// ======================================================
+// VIDEO COMMAND
+// ======================================================
+
+cmd(
+{
     pattern: "video",
-    alias: ["ytvideo", "."],
-    react: "🎬",
-    desc: "Download YouTube MP4",
+    alias: ["ytvideo", "ytv", "yt"],
+    desc: "Download YouTube Video",
     category: "download",
-    use: ".video <query>",
+    react: "🎥",
     filename: __filename
 },
 
@@ -672,153 +516,68 @@ async (
     m,
     {
         from,
-        reply,
-        q
+        q,
+        reply
     }
 ) => {
 
-    let replyHandler;
-
     try {
 
-        // ==================================================
-        // 1. QUERY
-        // ==================================================
+        const input =
+            (q || getReplyText(m)).trim();
 
-        let query =
-            q?.trim();
-
-        if (
-            !query &&
-            m?.quoted
-        ) {
-
-            query =
-                getReplyText(m);
-        }
-
-        if (!query) {
+        if (!input) {
 
             return reply(
-                "⚠️ Please provide a video name or YouTube link.\n\n" +
-                "Example:\n" +
-                ".video Nilan Hettiarachchi\n\n" +
-                "Or reply to a message with:\n" +
-                "."
+                "❌ Please give a YouTube link or video name."
             );
         }
 
         // ==================================================
-        // 2. VIDEO SEARCH / URL
+        // SEARCH / DIRECT URL
         // ==================================================
 
-        let data;
-        let ytUrl;
+        let data = null;
 
-        if (
-            isYouTubeUrl(query)
-        ) {
+        const youtubeId =
+            getYouTubeId(input);
 
-            const id =
-                getYouTubeId(query);
+        if (youtubeId) {
 
-            if (!id) {
+            const cleanUrl =
+                normalizeYouTubeUrl(input);
 
-                return reply(
-                    "❌ Invalid YouTube link."
-                );
-            }
+            const search =
+                await yts({
+                    videoId: youtubeId
+                });
 
-            ytUrl =
-                normalizeYouTubeUrl(
-                    query
-                );
-
-            try {
-
-                const result =
-                    await yts({
-                        videoId: id
-                    });
-
-                if (
-                    result?.videoId
-                ) {
-
-                    data =
-                        result;
-
-                } else if (
-                    result?.videos?.length
-                ) {
-
-                    data =
-                        result.videos[0];
-
-                }
-
-            } catch (error) {
-
-                console.log(
-                    "Metadata error:",
-                    error.message
-                );
+            if (
+                search &&
+                search.videos &&
+                search.videos.length
+            ) {
+                data = search.videos[0];
             }
 
             // Fallback metadata
             if (!data) {
 
-                try {
-
-                    const search =
-                        await yts(id);
-
-                    if (
-                        search?.videos?.length
-                    ) {
-
-                        data =
-                            search.videos[0];
-                    }
-
-                } catch (e) {
-
-                    console.log(
-                        "Fallback search:",
-                        e.message
-                    );
-                }
+                data = {
+                    title: "YouTube Video",
+                    timestamp: "Unknown",
+                    ago: "Unknown",
+                    views: "Unknown",
+                    url: cleanUrl
+                };
             }
 
-            if (!data) {
-
-                return reply(
-                    "❌ Unable to get video information."
-                );
-            }
+            data.url = cleanUrl;
 
         } else {
 
-            let search;
-
-            try {
-
-                search =
-                    await yts(
-                        query
-                    );
-
-            } catch (error) {
-
-                console.error(
-                    "YouTube Search Error:",
-                    error
-                );
-
-                return reply(
-                    "❌ YouTube search failed.\nPlease try again."
-                );
-            }
+            const search =
+                await yts(input);
 
             if (
                 !search ||
@@ -827,24 +586,18 @@ async (
             ) {
 
                 return reply(
-                    "*❌ No results found.*"
+                    "❌ No results found."
                 );
             }
 
-            data =
-                search.videos[0];
-
-            ytUrl =
-                normalizeYouTubeUrl(
-                    data.url
-                );
+            data = search.videos[0];
         }
 
         // ==================================================
-        // 3. TEMPLATE
+        // ORIGINAL TEMPLATE — DO NOT CHANGE
         // ==================================================
 
-        const caption = `
+        const menu = `
 *📽️ RANUMITHA-X-MD VIDEO DOWNLOADER 🎥*
 
 *🎵 \`Title:\`* ${data.title}
@@ -869,532 +622,313 @@ async (
    2.4 720p Quality 📂
    2.5 1080p Quality 📂
 
-> © Powered by 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝗗 🌛`;
+> © Powered by 𝗥𝗔𝗡𝗨𝗠𝗜𝗧𝗛𝗔-𝗫-𝗠𝗗 🌛
+`;
 
-        // ==================================================
-        // 4. SEND MENU
-        // ==================================================
-
-        const sentMsg =
+        const sent =
             await conn.sendMessage(
                 from,
                 {
-                    image: {
-                        url:
-                            data.thumbnail
-                    },
-                    caption:
-                        caption
+                    text: menu
                 },
                 {
-                    quoted:
-                        fakevCard
+                    quoted: fakevCard
                 }
             );
 
-        const messageID =
-            sentMsg.key.id;
-
-        console.log(
-            "VIDEO MENU ID:",
-            messageID
-        );
-
         // ==================================================
-        // 5. REPLY LISTENER
+        // LISTENER
         // ==================================================
 
-        replyHandler =
-            async (msgData) => {
-
-                let senderID;
-                let receivedMsg;
-                let selectedFormat =
-                    null;
+        const listener =
+            async (
+                update
+            ) => {
 
                 try {
 
-                    receivedMsg =
-                        msgData
-                            .messages?.[0];
+                    const messages =
+                        update?.messages;
 
-                    if (
-                        !receivedMsg?.message
-                    ) {
+                    if (!messages?.length) {
                         return;
                     }
 
-                    senderID =
-                        receivedMsg
-                            .key
-                            .remoteJid;
+                    const msg =
+                        messages[0];
 
-                    if (
-                        senderID !== from
-                    ) {
+                    if (!msg?.message) {
                         return;
                     }
 
-                    const receivedText =
-                        receivedMsg
-                            .message
-                            .conversation ||
+                    const msgFrom =
+                        msg.key.remoteJid;
 
-                        receivedMsg
-                            .message
-                            .extendedTextMessage
-                            ?.text ||
-
-                        receivedMsg
-                            .message
-                            .imageMessage
-                            ?.caption ||
-
-                        receivedMsg
-                            .message
-                            .videoMessage
-                            ?.caption ||
-
-                        "";
-
-                    if (
-                        !receivedText
-                    ) {
+                    if (msgFrom !== from) {
                         return;
                     }
 
-                    const option =
-                        receivedText
-                            .trim()
-                            .toLowerCase();
+                    const text =
+                        getReplyText(msg);
 
-                    // ==================================================
-                    // CHECK REPLY
-                    // ==================================================
+                    if (!text) {
+                        return;
+                    }
 
-                    const contextInfo =
-                        receivedMsg
-                            .message
-                            .extendedTextMessage
+                    // Must reply to menu
+                    const context =
+                        msg.message?.extendedTextMessage
                             ?.contextInfo;
 
-                    const quotedMessageID =
-                        contextInfo
-                            ?.stanzaId;
+                    const quotedId =
+                        context?.stanzaId;
 
                     if (
-                        quotedMessageID !==
-                        messageID
+                        quotedId &&
+                        quotedId !== sent.key.id
                     ) {
                         return;
                     }
 
                     // ==================================================
-                    // QUALITY
+                    // OPTION
                     // ==================================================
 
-                    let isDocument =
-                        false;
+                    const option =
+                        text.toLowerCase().trim();
 
-                    switch (option) {
+                    const options = {
 
-                        case "1.1":
-                            selectedFormat =
-                                "144p";
-                            break;
+                        "1.1": {
+                            quality: "144",
+                            document: false
+                        },
 
-                        case "1.2":
-                            selectedFormat =
-                                "360p";
-                            break;
+                        "1.2": {
+                            quality: "360",
+                            document: false
+                        },
 
-                        case "1.3":
-                            selectedFormat =
-                                "480p";
-                            break;
+                        "1.3": {
+                            quality: "480",
+                            document: false
+                        },
 
-                        case "1.4":
-                            selectedFormat =
-                                "720p";
-                            break;
+                        "1.4": {
+                            quality: "720",
+                            document: false
+                        },
 
-                        case "1.5":
-                            selectedFormat =
-                                "1080p";
-                            break;
+                        "1.5": {
+                            quality: "1080",
+                            document: false
+                        },
 
-                        case "2.1":
-                            selectedFormat =
-                                "144p";
-                            isDocument =
-                                true;
-                            break;
+                        "2.1": {
+                            quality: "144",
+                            document: true
+                        },
 
-                        case "2.2":
-                            selectedFormat =
-                                "360p";
-                            isDocument =
-                                true;
-                            break;
+                        "2.2": {
+                            quality: "360",
+                            document: true
+                        },
 
-                        case "2.3":
-                            selectedFormat =
-                                "480p";
-                            isDocument =
-                                true;
-                            break;
+                        "2.3": {
+                            quality: "480",
+                            document: true
+                        },
 
-                        case "2.4":
-                            selectedFormat =
-                                "720p";
-                            isDocument =
-                                true;
-                            break;
+                        "2.4": {
+                            quality: "720",
+                            document: true
+                        },
 
-                        case "2.5":
-                            selectedFormat =
-                                "1080p";
-                            isDocument =
-                                true;
-                            break;
+                        "2.5": {
+                            quality: "1080",
+                            document: true
+                        }
+                    };
 
-                        default:
+                    const selected =
+                        options[option];
 
-                            return conn.sendMessage(
-                                senderID,
-                                {
-                                    text:
-                                        "*❌ Invalid option!*\n\n" +
-                                        "Reply with 1.1 - 2.5."
-                                },
-                                {
-                                    quoted:
-                                        receivedMsg
-                                }
-                            );
+                    if (!selected) {
+                        return;
                     }
 
                     // ==================================================
-                    // DOWNLOAD REACTION
+                    // REACT
                     // ==================================================
 
                     await conn.sendMessage(
-                        senderID,
+                        from,
                         {
                             react: {
-                                text: "⬇️",
-                                key:
-                                    receivedMsg.key
+                                text: "⏳",
+                                key: msg.key
+                            }
+                        }
+                    );
+
+                    await reply(
+                        `⏳ Downloading ${selected.quality}p...\n\nPlease wait...`
+                    );
+
+                    // ==================================================
+                    // DOWNLOAD
+                    // ==================================================
+
+                    const result =
+                        await downloadUsingAPI(
+                            data.url,
+                            validQuality(
+                                selected.quality
+                            )
+                        );
+
+                    // ==================================================
+                    // SEND
+                    // ==================================================
+
+                    if (selected.document) {
+
+                        await conn.sendMessage(
+                            from,
+                            {
+                                document: {
+                                    url: result.file
+                                },
+                                mimetype:
+                                    "video/mp4",
+                                fileName:
+                                    `${data.title}.mp4`,
+                                caption:
+                                    `📂 *${data.title}*\n\n> RANUMITHA-X-MD`
+                            },
+                            {
+                                quoted: msg
+                            }
+                        );
+
+                    } else {
+
+                        await conn.sendMessage(
+                            from,
+                            {
+                                video: {
+                                    url: result.file
+                                },
+                                mimetype:
+                                    "video/mp4",
+                                fileName:
+                                    `${data.title}.mp4`,
+                                caption:
+                                    `🎥 *${data.title}*\n\n> RANUMITHA-X-MD`
+                            },
+                            {
+                                quoted: msg
+                            }
+                        );
+                    }
+
+                    // ==================================================
+                    // SUCCESS REACTION
+                    // ==================================================
+
+                    await conn.sendMessage(
+                        from,
+                        {
+                            react: {
+                                text: "✅",
+                                key: msg.key
                             }
                         }
                     );
 
                     // ==================================================
-                    // TEMP DIRECTORY
+                    // CLEAN FILE
                     // ==================================================
-
-                    const tempDir =
-                        path.join(
-                            process.cwd(),
-                            "temp"
-                        );
-
-                    if (
-                        !fs.existsSync(
-                            tempDir
-                        )
-                    ) {
-
-                        fs.mkdirSync(
-                            tempDir,
-                            {
-                                recursive:
-                                    true
-                            }
-                        );
-                    }
-
-                    // ==================================================
-                    // UNIQUE FILE
-                    // ==================================================
-
-                    const uniqueID =
-                        `${Date.now()}_${Math.random()
-                            .toString(36)
-                            .substring(2, 8)}`;
-
-                    const finalOutput =
-                        path.join(
-                            tempDir,
-                            `${uniqueID}_final.mp4`
-                        );
 
                     try {
 
-                        // ==================================================
-                        // DIRECT YOUTUBE DOWNLOAD
-                        // ==================================================
-
-                        console.log(
-                            "Downloading:",
-                            ytUrl
-                        );
-
-                        await downloadYouTubeVideo(
-                            ytUrl,
-                            selectedFormat,
-                            finalOutput
-                        );
-
-                        // ==================================================
-                        // VALIDATE
-                        // ==================================================
-
                         if (
-                            !fs.existsSync(
-                                finalOutput
+                            result.file &&
+                            fs.existsSync(
+                                result.file
                             )
                         ) {
 
-                            throw new Error(
-                                "Final video does not exist."
+                            fs.unlinkSync(
+                                result.file
                             );
                         }
 
-                        const fileSize =
-                            fs.statSync(
-                                finalOutput
-                            ).size;
-
-                        console.log(
-                            "Final file:",
-                            fileSize,
-                            "bytes"
-                        );
-
-                        if (
-                            fileSize <
-                            1000
-                        ) {
-
-                            throw new Error(
-                                "Video file is invalid."
-                            );
-                        }
-
-                        // ==================================================
-                        // UPLOAD REACTION
-                        // ==================================================
-
-                        await conn.sendMessage(
-                            senderID,
-                            {
-                                react: {
-                                    text: "⬆️",
-                                    key:
-                                        receivedMsg.key
-                                }
-                            }
-                        );
-
-                        // ==================================================
-                        // SAFE TITLE
-                        // ==================================================
-
-                        const safeTitle =
-                            (
-                                data.title ||
-                                "RANUMITHA_VIDEO"
-                            )
-                                .replace(
-                                    /[\\/:*?"<>|]/g,
-                                    ""
-                                )
-                                .replace(
-                                    /\s+/g,
-                                    " "
-                                )
-                                .trim()
-                                .substring(
-                                    0,
-                                    100
-                                );
-
-                        // ==================================================
-                        // DOCUMENT
-                        // ==================================================
-
-                        if (
-                            isDocument
-                        ) {
-
-                            await conn.sendMessage(
-                                senderID,
-                                {
-                                    document: {
-                                        url:
-                                            finalOutput
-                                    },
-
-                                    mimetype:
-                                        "video/mp4",
-
-                                    fileName:
-                                        `${safeTitle} - ${selectedFormat}.mp4`
-                                },
-                                {
-                                    quoted:
-                                        receivedMsg
-                                }
-                            );
-
-                        }
-
-                        // ==================================================
-                        // NORMAL VIDEO
-                        // ==================================================
-
-                        else {
-
-                            await conn.sendMessage(
-                                senderID,
-                                {
-                                    video: {
-                                        url:
-                                            finalOutput
-                                    },
-
-                                    mimetype:
-                                        "video/mp4",
-
-                                    caption:
-                                        `*${data.title}*\n\n` +
-                                        `*Quality:* ${selectedFormat}\n\n` +
-                                        `> © RANUMITHA-X-MD`,
-
-                                    ptt:
-                                        false
-                                },
-                                {
-                                    quoted:
-                                        receivedMsg
-                                }
-                            );
-                        }
-
-                        // ==================================================
-                        // SUCCESS
-                        // ==================================================
-
-                        await conn.sendMessage(
-                            senderID,
-                            {
-                                react: {
-                                    text: "✔️",
-                                    key:
-                                        receivedMsg.key
-                                }
-                            }
-                        );
-
-                    } finally {
-
-                        // ==================================================
-                        // CLEANUP
-                        // ==================================================
-
-                        try {
-
-                            if (
-                                fs.existsSync(
-                                    finalOutput
-                                )
-                            ) {
-
-                                fs.unlinkSync(
-                                    finalOutput
-                                );
-                            }
-
-                        } catch (e) {
-
-                            console.error(
-                                "Cleanup Error:",
-                                e.message
-                            );
-                        }
-                    }
+                    } catch (_) {}
 
                 } catch (error) {
 
                     console.error(
-                        "Video Download Error:",
+                        "VIDEO ERROR:",
                         error
+                    );
+
+                    await reply(
+                        `❌ *Download Failed*\n\n${error.message || "Unknown error"}`
                     );
 
                     try {
 
-                        if (
-                            senderID &&
-                            receivedMsg
-                        ) {
-
-                            await conn.sendMessage(
-                                senderID,
-                                {
-                                    react: {
-                                        text: "❌",
-                                        key:
-                                            receivedMsg.key
-                                    }
+                        await conn.sendMessage(
+                            from,
+                            {
+                                react: {
+                                    text: "❌",
+                                    key: m.key
                                 }
-                            );
-
-                            await conn.sendMessage(
-                                senderID,
-                                {
-                                    text:
-                                        `❌ Error downloading ${selectedFormat || "video"}\n\n` +
-                                        `${error.message}`
-                                },
-                                {
-                                    quoted:
-                                        receivedMsg
-                                }
-                            );
-                        }
-
-                    } catch (
-                        sendError
-                    ) {
-
-                        console.error(
-                            "Send Error:",
-                            sendError
+                            }
                         );
-                    }
+
+                    } catch (_) {}
                 }
             };
 
         // ==================================================
-        // ADD LISTENER
+        // REGISTER LISTENER
         // ==================================================
 
         conn.ev.on(
             "messages.upsert",
-            replyHandler
+            listener
+        );
+
+        // ==================================================
+        // REMOVE LISTENER AFTER 10 MINUTES
+        // ==================================================
+
+        setTimeout(
+            () => {
+
+                try {
+                    conn.ev.off(
+                        "messages.upsert",
+                        listener
+                    );
+                } catch (_) {}
+
+            },
+            10 * 60 * 1000
         );
 
     } catch (error) {
 
         console.error(
-            "Video Command Error:",
+            "VIDEO COMMAND ERROR:",
             error
         );
 
         return reply(
-            "❌ An error occurred while processing the video.\n\n" +
-            error.message
+            `❌ Error: ${error.message || "Something went wrong"}`
         );
     }
 });
