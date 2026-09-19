@@ -2,455 +2,144 @@ const { cmd } = require("../command");
 const fs = require("fs");
 const path = require("path");
 const ffmpeg = require("fluent-ffmpeg");
-const ffmpegPath = require("ffmpeg-static");
-const {
-    downloadContentFromMessage
-} = require("@whiskeysockets/baileys");
 
-// =====================================================
-// FFMPEG
-// =====================================================
-
-ffmpeg.setFfmpegPath(ffmpegPath);
-
-// =====================================================
-// TIME PARSER
-// =====================================================
-
-function parseTime(time) {
-
-    if (!time)
-        return null;
-
-    time = time.trim();
-
-    // 90
-    if (/^\d+$/.test(time)) {
-        return parseInt(time);
+/**
+ * Converts formatted time (HH:MM:SS / MM:SS / SS) into seconds
+ */
+function parseTimeToSeconds(timeStr) {
+    if (!timeStr) return null;
+    
+    // Direct number input (e.g., 80 -> 80 seconds)
+    if (/^\d+(\.\d+)?$/.test(timeStr)) {
+        return parseFloat(timeStr);
     }
 
-    // 1:20
-    if (/^\d+:\d{1,2}$/.test(time)) {
+    // HH:MM:SS or MM:SS format
+    const parts = timeStr.split(":").map(Number);
+    if (parts.some(isNaN)) return null;
 
-        const [m, s] =
-            time.split(":").map(Number);
-
-        if (s >= 60)
-            return null;
-
-        return (m * 60) + s;
-    }
-
-    // 1:02:30
-    if (/^\d+:\d{1,2}:\d{1,2}$/.test(time)) {
-
-        const [h, m, s] =
-            time.split(":").map(Number);
-
-        if (m >= 60 || s >= 60)
-            return null;
-
-        return (
-            (h * 3600) +
-            (m * 60) +
-            s
-        );
+    if (parts.length === 2) {
+        // MM:SS -> Minutes * 60 + Seconds
+        return parts[0] * 60 + parts[1];
+    } else if (parts.length === 3) {
+        // HH:MM:SS -> Hours * 3600 + Minutes * 60 + Seconds
+        return parts[0] * 3600 + parts[1] * 60 + parts[2];
     }
 
     return null;
 }
-
-// =====================================================
-// GET MEDIA MESSAGE
-// =====================================================
-
-function getMediaMessage(quoted) {
-
-    if (!quoted)
-        return null;
-
-    const msg =
-        quoted.message ||
-        quoted.msg ||
-        quoted;
-
-    if (msg.audioMessage)
-        return {
-            message: msg.audioMessage,
-            type: "audio"
-        };
-
-    if (msg.documentMessage)
-        return {
-            message: msg.documentMessage,
-            type: "document"
-        };
-
-    if (msg.videoMessage)
-        return {
-            message: msg.videoMessage,
-            type: "video"
-        };
-
-    return null;
-}
-
-// =====================================================
-// DOWNLOAD MEDIA
-// =====================================================
-
-async function downloadMedia(media) {
-
-    const chunks = [];
-
-    const stream =
-        await downloadContentFromMessage(
-            media.message,
-            media.type
-        );
-
-    for await (
-        const chunk of stream
-    ) {
-        chunks.push(chunk);
-    }
-
-    return Buffer.concat(chunks);
-}
-
-// =====================================================
-// VOICECUT
-// =====================================================
 
 cmd({
     pattern: "voicecut",
-    alias: [
-        "vcut",
-        "cutvoice"
-    ],
-    desc: "Cut voice/audio",
-    category: "tools",
-    filename: __filename
-
-}, async (
-    conn,
-    m,
-    store,
-    {
-        from,
-        quoted,
-        q,
-        reply
-    }
-) => {
-
-    let inputFile;
-    let outputFile;
+    alias: ["cutvoice", "audiocut", "vcut"],
+    desc: "Cut audio/voice note and send as a voice note",
+    category: "audio",
+    filename: __filename,
+}, async (conn, m, store, { from, quoted, q, reply }) => {
+    
+    const timestamp = Date.now();
+    const inputPath = path.join(__dirname, `input_${timestamp}.media`);
+    const opusPath = path.join(__dirname, `cut_${timestamp}.opus`);
 
     try {
+        /* =====================================================
+                     1. VALIDATE QUOTED MESSAGE
+        ===================================================== */
+        const isAudio = m.quoted && (
+            m.quoted.type === "audioMessage" || 
+            m.quoted.mtype === "audioMessage" ||
+            m.quoted.message?.audioMessage
+        );
 
-        // =================================================
-        // CHECK REPLY
-        // =================================================
-
-        if (!quoted) {
-
-            return reply(
-                `❌ *Reply to a voice message.*
-
-Example:
-
-*.voicecut 1:20*`
-            );
+        if (!isAudio) {
+            return reply("⚠️ Please reply to an Audio or Voice Note to use this command.\n\n*Examples:*\n• `.voicecut 1:20` (From start to 1m 20s)\n• `.voicecut 0:30 1:30` (From 30s to 1m 30s)");
         }
 
-        // =================================================
-        // TIME
-        // =================================================
-
-        const seconds =
-            parseTime(q);
-
-        if (
-            !seconds ||
-            seconds <= 0
-        ) {
-
-            return reply(
-                `❌ *Invalid time.*
-
-Example:
-
-*.voicecut 1:20*
-
-Other examples:
-
-*.voicecut 0:30*
-*.voicecut 2:00*
-*.voicecut 90*`
-            );
+        /* =====================================================
+                     2. PARSE TIME PARAMETERS
+        ===================================================== */
+        const args = q ? q.trim().split(/\s+/) : [];
+        if (args.length === 0) {
+            return reply("⚠️ Please specify the time duration to cut.\n\n*Examples:*\n• `.voicecut 1:20` (From start to 1:20)\n• `.voicecut 0:10 0:50` (From 0:10 to 0:50)");
         }
 
-        // =================================================
-        // MAX 1 HOUR
-        // =================================================
+        let startTime = 0;
+        let duration = 0;
 
-        if (seconds > 3600) {
+        if (args.length === 1) {
+            // .voicecut 1:20 (Cut from 0 to 1:20)
+            const endTimeSec = parseTimeToSeconds(args[0]);
+            if (endTimeSec === null || endTimeSec <= 0) {
+                return reply("❌ Invalid time format! Use `1:20` or `80` seconds.");
+            }
+            startTime = 0;
+            duration = endTimeSec;
+        } else if (args.length >= 2) {
+            // .voicecut 0:30 1:30 (Cut from start time to end time)
+            const startSec = parseTimeToSeconds(args[0]);
+            const endSec = parseTimeToSeconds(args[1]);
 
-            return reply(
-                "❌ Maximum duration is *1 hour*."
-            );
+            if (startSec === null || endSec === null || endSec <= startSec) {
+                return reply("❌ Invalid time format! End time must be greater than start time.");
+            }
+            startTime = startSec;
+            duration = endSec - startSec;
         }
 
-        // =================================================
-        // CHECK MEDIA
-        // =================================================
+        // Reaction
+        await conn.sendMessage(from, { react: { text: "✂️", key: m.key } });
 
-        const media =
-            getMediaMessage(
-                quoted
-            );
-
-        if (!media) {
-
-            return reply(
-                "❌ The replied message is not an audio/voice message."
-            );
+        /* =====================================================
+                     3. DOWNLOAD AUDIO MEDIA
+        ===================================================== */
+        const mediaBuffer = await m.quoted.download();
+        if (!mediaBuffer) {
+            return reply("❌ Failed to download audio file.");
         }
 
-        // =================================================
-        // REACT
-        // =================================================
+        fs.writeFileSync(inputPath, mediaBuffer);
+
+        /* =====================================================
+                     4. CUT AUDIO USING FFMPEG
+        ===================================================== */
+        await new Promise((resolve, reject) => {
+            ffmpeg(inputPath)
+                .setStartTime(startTime)
+                .setDuration(duration)
+                .audioCodec("libopus")
+                .audioChannels(1)
+                .audioFrequency(48000)
+                .format("opus")
+                .on("end", resolve)
+                .on("error", reject)
+                .save(opusPath);
+        });
+
+        /* =====================================================
+                     5. SEND VOICE NOTE (PTT)
+        ===================================================== */
+        await conn.sendMessage(from, { react: { text: "⬆️", key: m.key } });
 
         await conn.sendMessage(
             from,
             {
-                react: {
-                    text: "✂️",
-                    key: m.key
-                }
-            }
-        );
-
-        // =================================================
-        // FILES
-        // =================================================
-
-        const id =
-            Date.now();
-
-        inputFile =
-            path.join(
-                __dirname,
-                `vcut_${id}.input`
-            );
-
-        outputFile =
-            path.join(
-                __dirname,
-                `vcut_${id}.ogg`
-            );
-
-        // =================================================
-        // DOWNLOAD
-        // =================================================
-
-        console.log(
-            "[VOICECUT] Downloading..."
-        );
-
-        const buffer =
-            await downloadMedia(
-                media
-            );
-
-        if (
-            !buffer ||
-            buffer.length === 0
-        ) {
-
-            throw new Error(
-                "Audio download returned empty data."
-            );
-        }
-
-        fs.writeFileSync(
-            inputFile,
-            buffer
-        );
-
-        console.log(
-            "[VOICECUT] Downloaded:",
-            buffer.length,
-            "bytes"
-        );
-
-        // =================================================
-        // FFMPEG
-        // =================================================
-
-        await new Promise(
-            (resolve, reject) => {
-
-                ffmpeg(inputFile)
-
-                    .setStartTime(0)
-
-                    .duration(seconds)
-
-                    .audioCodec("libopus")
-
-                    .audioChannels(1)
-
-                    .audioFrequency(48000)
-
-                    .audioBitrate("64k")
-
-                    .format("ogg")
-
-                    .outputOptions([
-                        "-vn",
-                        "-map_metadata",
-                        "-1"
-                    ])
-
-                    .on(
-                        "start",
-                        cmd => {
-
-                            console.log(
-                                "[VOICECUT]",
-                                cmd
-                            );
-                        }
-                    )
-
-                    .on(
-                        "end",
-                        resolve
-                    )
-
-                    .on(
-                        "error",
-                        reject
-                    )
-
-                    .save(outputFile);
-            }
-        );
-
-        // =================================================
-        // CHECK OUTPUT
-        // =================================================
-
-        if (
-            !fs.existsSync(outputFile)
-        ) {
-
-            throw new Error(
-                "FFmpeg did not create output."
-            );
-        }
-
-        const output =
-            fs.readFileSync(
-                outputFile
-            );
-
-        if (!output.length) {
-
-            throw new Error(
-                "Output audio is empty."
-            );
-        }
-
-        // =================================================
-        // SEND VOICE
-        // =================================================
-
-        await conn.sendMessage(
-            from,
-            {
-                audio: output,
-
-                mimetype:
-                    "audio/ogg; codecs=opus",
-
-                ptt: true
+                audio: fs.readFileSync(opusPath),
+                mimetype: "audio/ogg; codecs=opus",
+                ptt: true // Send as Voice Note (PTT)
             },
-            {
-                quoted: m
-            }
+            { quoted: m }
         );
 
-        // =================================================
-        // SUCCESS
-        // =================================================
-
-        await conn.sendMessage(
-            from,
-            {
-                react: {
-                    text: "✅",
-                    key: m.key
-                }
-            }
-        );
-
-        console.log(
-            "[VOICECUT] SUCCESS"
-        );
+        await conn.sendMessage(from, { react: { text: "✔️", key: m.key } });
 
     } catch (error) {
-
-        console.error(
-            "VOICECUT ERROR:",
-            error
-        );
-
-        await conn.sendMessage(
-            from,
-            {
-                text:
-                    `❌ *Voice cut failed!*
-
-🔴 ${error.message || error}`
-            },
-            {
-                quoted: m
-            }
-        );
-
+        console.error("Voice Cut Command Error:", error);
+        return reply("❌ An error occurred while cutting the audio. Please try again.");
     } finally {
-
-        // =================================================
-        // CLEAN
-        // =================================================
-
-        try {
-
-            if (
-                inputFile &&
-                fs.existsSync(inputFile)
-            ) {
-                fs.unlinkSync(
-                    inputFile
-                );
-            }
-
-        } catch (e) {}
-
-        try {
-
-            if (
-                outputFile &&
-                fs.existsSync(outputFile)
-            ) {
-                fs.unlinkSync(
-                    outputFile
-                );
-            }
-
-        } catch (e) {}
+        /* =====================================================
+                     6. CLEANUP TEMP FILES
+        ===================================================== */
+        if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+        if (fs.existsSync(opusPath)) fs.unlinkSync(opusPath);
     }
 });
