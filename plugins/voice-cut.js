@@ -3,22 +3,18 @@ const fs = require("fs");
 const path = require("path");
 const ffmpeg = require("fluent-ffmpeg");
 const ffmpegPath = require("ffmpeg-static");
+const {
+    downloadContentFromMessage
+} = require("@whiskeysockets/baileys");
 
 // =====================================================
-// SET FFMPEG PATH
+// FFMPEG
 // =====================================================
 
-if (ffmpegPath) {
-    ffmpeg.setFfmpegPath(ffmpegPath);
-}
+ffmpeg.setFfmpegPath(ffmpegPath);
 
 // =====================================================
-// PARSE TIME
-// Supports:
-// 30
-// 1:20
-// 2:30
-// 1:02:15
+// TIME PARSER
 // =====================================================
 
 function parseTime(time) {
@@ -26,58 +22,38 @@ function parseTime(time) {
     if (!time)
         return null;
 
-    time = String(time).trim();
+    time = time.trim();
 
-    // Seconds
+    // 90
     if (/^\d+$/.test(time)) {
         return parseInt(time);
     }
 
-    // MM:SS
+    // 1:20
     if (/^\d+:\d{1,2}$/.test(time)) {
 
-        const parts = time.split(":");
+        const [m, s] =
+            time.split(":").map(Number);
 
-        const minutes =
-            parseInt(parts[0]);
-
-        const seconds =
-            parseInt(parts[1]);
-
-        if (seconds >= 60)
+        if (s >= 60)
             return null;
 
-        return (
-            minutes * 60 +
-            seconds
-        );
+        return (m * 60) + s;
     }
 
-    // HH:MM:SS
+    // 1:02:30
     if (/^\d+:\d{1,2}:\d{1,2}$/.test(time)) {
 
-        const parts = time.split(":");
+        const [h, m, s] =
+            time.split(":").map(Number);
 
-        const hours =
-            parseInt(parts[0]);
-
-        const minutes =
-            parseInt(parts[1]);
-
-        const seconds =
-            parseInt(parts[2]);
-
-        if (
-            minutes >= 60 ||
-            seconds >= 60
-        ) {
+        if (m >= 60 || s >= 60)
             return null;
-        }
 
         return (
-            hours * 3600 +
-            minutes * 60 +
-            seconds
+            (h * 3600) +
+            (m * 60) +
+            s
         );
     }
 
@@ -85,46 +61,65 @@ function parseTime(time) {
 }
 
 // =====================================================
-// FORMAT TIME
+// GET MEDIA MESSAGE
 // =====================================================
 
-function formatTime(seconds) {
-
-    seconds =
-        Math.floor(seconds);
-
-    const minutes =
-        Math.floor(seconds / 60);
-
-    const secs =
-        seconds % 60;
-
-    return (
-        `${minutes}:` +
-        `${String(secs).padStart(2, "0")}`
-    );
-}
-
-// =====================================================
-// GET QUOTED MEDIA TYPE
-// =====================================================
-
-function getQuotedMessage(quoted) {
+function getMediaMessage(quoted) {
 
     if (!quoted)
         return null;
 
-    if (quoted.message)
-        return quoted.message;
+    const msg =
+        quoted.message ||
+        quoted.msg ||
+        quoted;
 
-    if (quoted.msg)
-        return quoted.msg;
+    if (msg.audioMessage)
+        return {
+            message: msg.audioMessage,
+            type: "audio"
+        };
+
+    if (msg.documentMessage)
+        return {
+            message: msg.documentMessage,
+            type: "document"
+        };
+
+    if (msg.videoMessage)
+        return {
+            message: msg.videoMessage,
+            type: "video"
+        };
 
     return null;
 }
 
 // =====================================================
-// VOICE CUT
+// DOWNLOAD MEDIA
+// =====================================================
+
+async function downloadMedia(media) {
+
+    const chunks = [];
+
+    const stream =
+        await downloadContentFromMessage(
+            media.message,
+            media.type
+        );
+
+    for await (
+        const chunk of stream
+    ) {
+        chunks.push(chunk);
+    }
+
+    return Buffer.concat(chunks);
+}
+
+// =====================================================
+// VOICECUT
 // =====================================================
 
 cmd({
@@ -133,9 +128,10 @@ cmd({
         "vcut",
         "cutvoice"
     ],
-    desc: "Cut voice/audio from beginning",
+    desc: "Cut voice/audio",
     category: "tools",
     filename: __filename
+
 }, async (
     conn,
     m,
@@ -148,19 +144,19 @@ cmd({
     }
 ) => {
 
-    let inputPath = null;
-    let outputPath = null;
+    let inputFile;
+    let outputFile;
 
     try {
 
         // =================================================
-        // CHECK QUOTED MESSAGE
+        // CHECK REPLY
         // =================================================
 
         if (!quoted) {
 
             return reply(
-                `❌ *Reply to a voice/audio message.*
+                `❌ *Reply to a voice message.*
 
 Example:
 
@@ -169,41 +165,56 @@ Example:
         }
 
         // =================================================
-        // CHECK TIME
+        // TIME
         // =================================================
 
-        const cutSeconds =
+        const seconds =
             parseTime(q);
 
         if (
-            cutSeconds === null ||
-            cutSeconds <= 0
+            !seconds ||
+            seconds <= 0
         ) {
 
             return reply(
-                `❌ *Invalid time!*
+                `❌ *Invalid time.*
 
-Use:
+Example:
 
 *.voicecut 1:20*
 
-Examples:
+Other examples:
 
-• 30 seconds → *.voicecut 0:30*
-• 1 minute → *.voicecut 1:00*
-• 1 minute 20 seconds → *.voicecut 1:20*
-• 90 seconds → *.voicecut 90*`
+*.voicecut 0:30*
+*.voicecut 2:00*
+*.voicecut 90*`
             );
         }
 
         // =================================================
-        // MAXIMUM 1 HOUR
+        // MAX 1 HOUR
         // =================================================
 
-        if (cutSeconds > 3600) {
+        if (seconds > 3600) {
 
             return reply(
-                "❌ Maximum cut time is *1 hour*."
+                "❌ Maximum duration is *1 hour*."
+            );
+        }
+
+        // =================================================
+        // CHECK MEDIA
+        // =================================================
+
+        const media =
+            getMediaMessage(
+                quoted
+            );
+
+        if (!media) {
+
+            return reply(
+                "❌ The replied message is not an audio/voice message."
             );
         }
 
@@ -222,151 +233,71 @@ Examples:
         );
 
         // =================================================
-        // FILE PATHS
+        // FILES
         // =================================================
 
         const id =
-            `${Date.now()}_${Math.floor(Math.random() * 9999)}`;
+            Date.now();
 
-        inputPath =
+        inputFile =
             path.join(
                 __dirname,
-                `voicecut_${id}.input`
+                `vcut_${id}.input`
             );
 
-        outputPath =
+        outputFile =
             path.join(
                 __dirname,
-                `voicecut_${id}.ogg`
+                `vcut_${id}.ogg`
             );
+
+        // =================================================
+        // DOWNLOAD
+        // =================================================
 
         console.log(
-            "[VOICECUT] Input:",
-            inputPath
+            "[VOICECUT] Downloading..."
         );
 
-        console.log(
-            "[VOICECUT] Output:",
-            outputPath
-        );
-
-        // =================================================
-        // DOWNLOAD QUOTED AUDIO
-        // =================================================
-
-        let mediaBuffer = null;
-
-        // Method 1
-        if (
-            typeof quoted.download === "function"
-        ) {
-
-            console.log(
-                "[VOICECUT] Using quoted.download()"
+        const buffer =
+            await downloadMedia(
+                media
             );
 
-            mediaBuffer =
-                await quoted.download();
-        }
-
-        // Method 2
-        else if (
-            typeof conn.downloadMediaMessage === "function"
-        ) {
-
-            console.log(
-                "[VOICECUT] Using conn.downloadMediaMessage()"
-            );
-
-            mediaBuffer =
-                await conn.downloadMediaMessage(
-                    quoted
-                );
-        }
-
-        // =================================================
-        // CHECK DOWNLOAD
-        // =================================================
-
-        if (!mediaBuffer) {
-
-            throw new Error(
-                "Unable to download quoted audio. Your bot framework does not provide a supported media download method."
-            );
-        }
-
         if (
-            !Buffer.isBuffer(mediaBuffer)
-        ) {
-
-            mediaBuffer =
-                Buffer.from(
-                    mediaBuffer
-                );
-        }
-
-        if (
-            mediaBuffer.length === 0
+            !buffer ||
+            buffer.length === 0
         ) {
 
             throw new Error(
-                "Downloaded audio is empty."
+                "Audio download returned empty data."
             );
         }
+
+        fs.writeFileSync(
+            inputFile,
+            buffer
+        );
 
         console.log(
             "[VOICECUT] Downloaded:",
-            mediaBuffer.length,
+            buffer.length,
             "bytes"
         );
 
         // =================================================
-        // SAVE ORIGINAL AUDIO
-        // =================================================
-
-        fs.writeFileSync(
-            inputPath,
-            mediaBuffer
-        );
-
-        // =================================================
-        // FFMPEG CUT
+        // FFMPEG
         // =================================================
 
         await new Promise(
             (resolve, reject) => {
 
-                let finished = false;
+                ffmpeg(inputFile)
 
-                const fail = (error) => {
-
-                    if (finished)
-                        return;
-
-                    finished = true;
-
-                    reject(error);
-                };
-
-                const done = () => {
-
-                    if (finished)
-                        return;
-
-                    finished = true;
-
-                    resolve();
-                };
-
-                ffmpeg(inputPath)
-
-                    // Start from beginning
                     .setStartTime(0)
 
-                    // Cut duration
-                    .setDuration(cutSeconds)
+                    .duration(seconds)
 
-                    // WhatsApp compatible Opus
                     .audioCodec("libopus")
 
                     .audioChannels(1)
@@ -385,45 +316,26 @@ Examples:
 
                     .on(
                         "start",
-                        commandLine => {
+                        cmd => {
 
                             console.log(
-                                "[VOICECUT] FFmpeg:",
-                                commandLine
-                            );
-                        }
-                    )
-
-                    .on(
-                        "progress",
-                        progress => {
-
-                            console.log(
-                                "[VOICECUT] Progress:",
-                                progress.percent
+                                "[VOICECUT]",
+                                cmd
                             );
                         }
                     )
 
                     .on(
                         "end",
-                        done
+                        resolve
                     )
 
                     .on(
                         "error",
-                        error => {
-
-                            console.error(
-                                "[VOICECUT] FFmpeg ERROR:",
-                                error
-                            );
-
-                            fail(error);
-                        }
+                        reject
                     )
 
-                    .save(outputPath);
+                    .save(outputFile);
             }
         );
 
@@ -432,49 +344,34 @@ Examples:
         // =================================================
 
         if (
-            !fs.existsSync(outputPath)
+            !fs.existsSync(outputFile)
         ) {
 
             throw new Error(
-                "FFmpeg finished but output file was not created."
+                "FFmpeg did not create output."
             );
         }
 
-        const outputStats =
-            fs.statSync(outputPath);
-
-        if (
-            outputStats.size === 0
-        ) {
-
-            throw new Error(
-                "FFmpeg created an empty output file."
-            );
-        }
-
-        console.log(
-            "[VOICECUT] Output size:",
-            outputStats.size
-        );
-
-        // =================================================
-        // READ OUTPUT
-        // =================================================
-
-        const voiceBuffer =
+        const output =
             fs.readFileSync(
-                outputPath
+                outputFile
             );
 
+        if (!output.length) {
+
+            throw new Error(
+                "Output audio is empty."
+            );
+        }
+
         // =================================================
-        // SEND WHATSAPP VOICE NOTE
+        // SEND VOICE
         // =================================================
 
         await conn.sendMessage(
             from,
             {
-                audio:
-                    voiceBuffer,
+                audio: output,
 
                 mimetype:
                     "audio/ogg; codecs=opus",
@@ -487,7 +384,7 @@ Examples:
         );
 
         // =================================================
-        // SUCCESS REACTION
+        // SUCCESS
         // =================================================
 
         await conn.sendMessage(
@@ -501,113 +398,59 @@ Examples:
         );
 
         console.log(
-            `[VOICECUT] Successfully cut ${formatTime(cutSeconds)}`
+            "[VOICECUT] SUCCESS"
         );
 
     } catch (error) {
 
-        // =================================================
-        // FULL ERROR LOG
-        // =================================================
-
         console.error(
-            "================================="
-        );
-
-        console.error(
-            "VOICECUT ERROR"
-        );
-
-        console.error(
+            "VOICECUT ERROR:",
             error
         );
 
-        console.error(
-            error?.stack
+        await conn.sendMessage(
+            from,
+            {
+                text:
+                    `❌ *Voice cut failed!*
+
+🔴 ${error.message || error}`
+            },
+            {
+                quoted: m
+            }
         );
-
-        console.error(
-            "================================="
-        );
-
-        // =================================================
-        // SEND ERROR
-        // =================================================
-
-        try {
-
-            await conn.sendMessage(
-                from,
-                {
-                    text:
-                        `❌ *Voice cut failed!*
-
-🔴 *Error:*
-${error?.message || error}
-
-Please try again.`
-                },
-                {
-                    quoted: m
-                }
-            );
-
-        } catch (sendError) {
-
-            console.error(
-                "Error sending error message:",
-                sendError
-            );
-        }
 
     } finally {
 
         // =================================================
-        // DELETE INPUT
+        // CLEAN
         // =================================================
 
         try {
 
             if (
-                inputPath &&
-                fs.existsSync(inputPath)
+                inputFile &&
+                fs.existsSync(inputFile)
             ) {
-
                 fs.unlinkSync(
-                    inputPath
+                    inputFile
                 );
             }
 
-        } catch (error) {
-
-            console.error(
-                "Input cleanup error:",
-                error.message
-            );
-        }
-
-        // =================================================
-        // DELETE OUTPUT
-        // =================================================
+        } catch (e) {}
 
         try {
 
             if (
-                outputPath &&
-                fs.existsSync(outputPath)
+                outputFile &&
+                fs.existsSync(outputFile)
             ) {
-
                 fs.unlinkSync(
-                    outputPath
+                    outputFile
                 );
             }
 
-        } catch (error) {
-
-            console.error(
-                "Output cleanup error:",
-                error.message
-            );
-        }
+        } catch (e) {}
     }
 });
