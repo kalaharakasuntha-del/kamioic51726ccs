@@ -2,11 +2,20 @@ const { cmd } = require("../command");
 const fs = require("fs");
 const path = require("path");
 const ffmpeg = require("fluent-ffmpeg");
+const ffmpegPath = require("ffmpeg-static");
+
+// =====================================================
+// SET FFMPEG PATH
+// =====================================================
+
+if (ffmpegPath) {
+    ffmpeg.setFfmpegPath(ffmpegPath);
+}
 
 // =====================================================
 // PARSE TIME
 // Supports:
-// 90
+// 30
 // 1:20
 // 2:30
 // 1:02:15
@@ -19,9 +28,9 @@ function parseTime(time) {
 
     time = String(time).trim();
 
-    // Seconds only
+    // Seconds
     if (/^\d+$/.test(time)) {
-        return Number(time);
+        return parseInt(time);
     }
 
     // MM:SS
@@ -75,7 +84,6 @@ function parseTime(time) {
     return null;
 }
 
-
 // =====================================================
 // FORMAT TIME
 // =====================================================
@@ -85,25 +93,11 @@ function formatTime(seconds) {
     seconds =
         Math.floor(seconds);
 
-    const hours =
-        Math.floor(seconds / 3600);
-
     const minutes =
-        Math.floor(
-            (seconds % 3600) / 60
-        );
+        Math.floor(seconds / 60);
 
     const secs =
         seconds % 60;
-
-    if (hours > 0) {
-
-        return (
-            `${hours}:` +
-            `${String(minutes).padStart(2, "0")}:` +
-            `${String(secs).padStart(2, "0")}`
-        );
-    }
 
     return (
         `${minutes}:` +
@@ -111,6 +105,23 @@ function formatTime(seconds) {
     );
 }
 
+// =====================================================
+// GET QUOTED MEDIA TYPE
+// =====================================================
+
+function getQuotedMessage(quoted) {
+
+    if (!quoted)
+        return null;
+
+    if (quoted.message)
+        return quoted.message;
+
+    if (quoted.msg)
+        return quoted.msg;
+
+    return null;
+}
 
 // =====================================================
 // VOICE CUT
@@ -118,10 +129,13 @@ function formatTime(seconds) {
 
 cmd({
     pattern: "voicecut",
-    alias: ["vcut", "cutvoice"],
-    desc: "Cut audio/voice from beginning",
+    alias: [
+        "vcut",
+        "cutvoice"
+    ],
+    desc: "Cut voice/audio from beginning",
     category: "tools",
-    filename: __filename,
+    filename: __filename
 }, async (
     conn,
     m,
@@ -146,53 +160,52 @@ cmd({
         if (!quoted) {
 
             return reply(
-                `❌ *Please reply to a voice/audio message.*
+                `❌ *Reply to a voice/audio message.*
 
 Example:
+
 *.voicecut 1:20*`
             );
         }
-
 
         // =================================================
         // CHECK TIME
         // =================================================
 
-        const duration =
+        const cutSeconds =
             parseTime(q);
 
-        if (!duration || duration <= 0) {
+        if (
+            cutSeconds === null ||
+            cutSeconds <= 0
+        ) {
 
             return reply(
-                `❌ *Invalid time format!*
+                `❌ *Invalid time!*
 
 Use:
 
 *.voicecut 1:20*
 
-or
-
-*.voicecut 90*
-
 Examples:
+
 • 30 seconds → *.voicecut 0:30*
+• 1 minute → *.voicecut 1:00*
 • 1 minute 20 seconds → *.voicecut 1:20*
-• 2 minutes → *.voicecut 2:00*`
+• 90 seconds → *.voicecut 90*`
             );
         }
 
-
         // =================================================
-        // MAXIMUM LIMIT
+        // MAXIMUM 1 HOUR
         // =================================================
 
-        if (duration > 3600) {
+        if (cutSeconds > 3600) {
 
             return reply(
-                "❌ Maximum cut duration is *1 hour*."
+                "❌ Maximum cut time is *1 hour*."
             );
         }
-
 
         // =================================================
         // REACT
@@ -208,51 +221,113 @@ Examples:
             }
         );
 
-
         // =================================================
-        // TEMP FILE NAMES
+        // FILE PATHS
         // =================================================
 
-        const timestamp =
-            Date.now();
+        const id =
+            `${Date.now()}_${Math.floor(Math.random() * 9999)}`;
 
         inputPath =
             path.join(
                 __dirname,
-                `voicecut_input_${timestamp}`
+                `voicecut_${id}.input`
             );
 
         outputPath =
             path.join(
                 __dirname,
-                `voicecut_output_${timestamp}.ogg`
+                `voicecut_${id}.ogg`
             );
 
+        console.log(
+            "[VOICECUT] Input:",
+            inputPath
+        );
+
+        console.log(
+            "[VOICECUT] Output:",
+            outputPath
+        );
 
         // =================================================
         // DOWNLOAD QUOTED AUDIO
         // =================================================
 
-        const buffer =
-            await quoted.download();
+        let mediaBuffer = null;
 
-        if (!buffer) {
+        // Method 1
+        if (
+            typeof quoted.download === "function"
+        ) {
 
-            return reply(
-                "❌ Unable to download the audio."
+            console.log(
+                "[VOICECUT] Using quoted.download()"
+            );
+
+            mediaBuffer =
+                await quoted.download();
+        }
+
+        // Method 2
+        else if (
+            typeof conn.downloadMediaMessage === "function"
+        ) {
+
+            console.log(
+                "[VOICECUT] Using conn.downloadMediaMessage()"
+            );
+
+            mediaBuffer =
+                await conn.downloadMediaMessage(
+                    quoted
+                );
+        }
+
+        // =================================================
+        // CHECK DOWNLOAD
+        // =================================================
+
+        if (!mediaBuffer) {
+
+            throw new Error(
+                "Unable to download quoted audio. Your bot framework does not provide a supported media download method."
             );
         }
 
+        if (
+            !Buffer.isBuffer(mediaBuffer)
+        ) {
+
+            mediaBuffer =
+                Buffer.from(
+                    mediaBuffer
+                );
+        }
+
+        if (
+            mediaBuffer.length === 0
+        ) {
+
+            throw new Error(
+                "Downloaded audio is empty."
+            );
+        }
+
+        console.log(
+            "[VOICECUT] Downloaded:",
+            mediaBuffer.length,
+            "bytes"
+        );
 
         // =================================================
-        // SAVE INPUT
+        // SAVE ORIGINAL AUDIO
         // =================================================
 
         fs.writeFileSync(
             inputPath,
-            buffer
+            mediaBuffer
         );
-
 
         // =================================================
         // FFMPEG CUT
@@ -261,24 +336,37 @@ Examples:
         await new Promise(
             (resolve, reject) => {
 
+                let finished = false;
+
+                const fail = (error) => {
+
+                    if (finished)
+                        return;
+
+                    finished = true;
+
+                    reject(error);
+                };
+
+                const done = () => {
+
+                    if (finished)
+                        return;
+
+                    finished = true;
+
+                    resolve();
+                };
+
                 ffmpeg(inputPath)
 
-                    /*
-                     * Start from beginning
-                     */
-
+                    // Start from beginning
                     .setStartTime(0)
 
-                    /*
-                     * Cut duration
-                     */
+                    // Cut duration
+                    .setDuration(cutSeconds)
 
-                    .setDuration(duration)
-
-                    /*
-                     * WhatsApp compatible Opus
-                     */
-
+                    // WhatsApp compatible Opus
                     .audioCodec("libopus")
 
                     .audioChannels(1)
@@ -289,31 +377,55 @@ Examples:
 
                     .format("ogg")
 
+                    .outputOptions([
+                        "-vn",
+                        "-map_metadata",
+                        "-1"
+                    ])
+
                     .on(
                         "start",
                         commandLine => {
 
                             console.log(
-                                "VoiceCut FFmpeg:",
+                                "[VOICECUT] FFmpeg:",
                                 commandLine
                             );
                         }
                     )
 
                     .on(
+                        "progress",
+                        progress => {
+
+                            console.log(
+                                "[VOICECUT] Progress:",
+                                progress.percent
+                            );
+                        }
+                    )
+
+                    .on(
                         "end",
-                        resolve
+                        done
                     )
 
                     .on(
                         "error",
-                        reject
+                        error => {
+
+                            console.error(
+                                "[VOICECUT] FFmpeg ERROR:",
+                                error
+                            );
+
+                            fail(error);
+                        }
                     )
 
                     .save(outputPath);
             }
         );
-
 
         // =================================================
         // CHECK OUTPUT
@@ -324,26 +436,45 @@ Examples:
         ) {
 
             throw new Error(
-                "FFmpeg output not found"
+                "FFmpeg finished but output file was not created."
             );
         }
 
+        const outputStats =
+            fs.statSync(outputPath);
 
-        const outputBuffer =
+        if (
+            outputStats.size === 0
+        ) {
+
+            throw new Error(
+                "FFmpeg created an empty output file."
+            );
+        }
+
+        console.log(
+            "[VOICECUT] Output size:",
+            outputStats.size
+        );
+
+        // =================================================
+        // READ OUTPUT
+        // =================================================
+
+        const voiceBuffer =
             fs.readFileSync(
                 outputPath
             );
 
-
         // =================================================
-        // SEND VOICE NOTE
+        // SEND WHATSAPP VOICE NOTE
         // =================================================
 
         await conn.sendMessage(
             from,
             {
                 audio:
-                    outputBuffer,
+                    voiceBuffer,
 
                 mimetype:
                     "audio/ogg; codecs=opus",
@@ -354,7 +485,6 @@ Examples:
                 quoted: m
             }
         );
-
 
         // =================================================
         // SUCCESS REACTION
@@ -370,23 +500,70 @@ Examples:
             }
         );
 
+        console.log(
+            `[VOICECUT] Successfully cut ${formatTime(cutSeconds)}`
+        );
 
     } catch (error) {
 
+        // =================================================
+        // FULL ERROR LOG
+        // =================================================
+
         console.error(
-            "VOICECUT ERROR:",
+            "================================="
+        );
+
+        console.error(
+            "VOICECUT ERROR"
+        );
+
+        console.error(
             error
         );
 
-        await reply(
-            "❌ *Voice cut failed!*\n\n" +
-            "Make sure FFmpeg is installed and try again."
+        console.error(
+            error?.stack
         );
+
+        console.error(
+            "================================="
+        );
+
+        // =================================================
+        // SEND ERROR
+        // =================================================
+
+        try {
+
+            await conn.sendMessage(
+                from,
+                {
+                    text:
+                        `❌ *Voice cut failed!*
+
+🔴 *Error:*
+${error?.message || error}
+
+Please try again.`
+                },
+                {
+                    quoted: m
+                }
+            );
+
+        } catch (sendError) {
+
+            console.error(
+                "Error sending error message:",
+                sendError
+            );
+        }
 
     } finally {
 
         // =================================================
-        // DELETE TEMP FILES
+        // DELETE INPUT
         // =================================================
 
         try {
@@ -401,14 +578,17 @@ Examples:
                 );
             }
 
-        } catch (e) {
+        } catch (error) {
 
-            console.log(
+            console.error(
                 "Input cleanup error:",
-                e.message
+                error.message
             );
         }
 
+        // =================================================
+        // DELETE OUTPUT
+        // =================================================
 
         try {
 
@@ -422,11 +602,11 @@ Examples:
                 );
             }
 
-        } catch (e) {
+        } catch (error) {
 
-            console.log(
+            console.error(
                 "Output cleanup error:",
-                e.message
+                error.message
             );
         }
     }
