@@ -1,90 +1,64 @@
-
 const { cmd } = require("../command");
 
 cmd({
   pattern: "vv",
-  alias: ["retrive", "💗"],
-  react: "🫟",
-  desc: "Owner Only - Retrieve ordinary quoted media",
+  alias: ["viewonce", 'retrive',"💗"],
+  react: '🫟',
+  desc: "Owner Only - retrieve quoted message back to user",
   category: "owner",
   filename: __filename
 }, async (client, message, match, { from, isCreator }) => {
   try {
     if (!isCreator) {
       return await client.sendMessage(from, {
-        text: "🚫 Owner Only Command!"
+        text: "*🚫 Owner Only Command!*"
       }, { quoted: message });
     }
 
-    const quoted = match.quoted;
-
-    if (!quoted) {
+    if (!match.quoted) {
       return await client.sendMessage(from, {
-        text: "🍁 Please reply to an ordinary media message!"
+        text: "*🍁 Please reply to a view once message!*"
       }, { quoted: message });
     }
 
-    const mtype = quoted.mtype;
+    const buffer = await match.quoted.download();
+    const mtype = match.quoted.mtype;
+    const options = { quoted: message };
 
-    if (!["imageMessage", "videoMessage", "audioMessage"].includes(mtype)) {
-      return await client.sendMessage(from, {
-        text: "❌ Only image, video and audio are supported."
-      }, { quoted: message });
-    }
-
-    if (quoted.viewOnce || quoted.msg?.viewOnce) {
-      return await client.sendMessage(from, {
-        text: "⚠️ View Once media is not supported."
-      }, { quoted: message });
-    }
-
-    if (typeof quoted.download !== "function") {
-      throw new Error("Download method is unavailable in this message wrapper.");
-    }
-
-    const buffer = await quoted.download();
-
-    if (!buffer || !buffer.length) {
-      throw new Error("Downloaded media is empty.");
-    }
-
-    let content;
-
+    let messageContent = {};
     switch (mtype) {
       case "imageMessage":
-        content = {
+        messageContent = {
           image: buffer,
-          caption: quoted.text || "",
-          mimetype: quoted.mimetype || "image/jpeg"
+          caption: match.quoted.text || '',
+          mimetype: match.quoted.mimetype || "image/jpeg"
         };
         break;
-
       case "videoMessage":
-        content = {
+        messageContent = {
           video: buffer,
-          caption: quoted.text || "",
-          mimetype: quoted.mimetype || "video/mp4"
+          caption: match.quoted.text || '',
+          mimetype: match.quoted.mimetype || "video/mp4"
         };
         break;
-
       case "audioMessage":
-        content = {
+        messageContent = {
           audio: buffer,
-          mimetype: quoted.mimetype || "audio/mp4",
-          ptt: quoted.ptt || false
+          mimetype: "audio/mp4",
+          ptt: match.quoted.ptt || false
         };
         break;
+      default:
+        return await client.sendMessage(from, {
+          text: "❌ Only image, video, and audio messages are supported"
+        }, { quoted: message });
     }
 
-    await client.sendMessage(from, content, {
-      quoted: message
-    });
-
+    await client.sendMessage(from, messageContent, options);
   } catch (error) {
-    console.error("VV Error:", error);
-
+    console.error("vv Error:", error);
     await client.sendMessage(from, {
-      text: "❌ Media Error:\n" + error.message
+      text: "❌ Error fetching vv message:\n" + error.message
     }, { quoted: message });
   }
 });
