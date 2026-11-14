@@ -3,28 +3,27 @@ const { cmd } = require("../command");
 
 cmd({
   pattern: "vv",
-  alias: ["viewonce", "retrive", "💗"],
+  alias: ["retrive", "💗"],
   react: "🫟",
-  desc: "Owner Only - Retrieve quoted media",
+  desc: "Owner Only - Retrieve ordinary quoted media",
   category: "owner",
   filename: __filename
 }, async (client, message, match, { from, isCreator }) => {
-
   try {
-
     if (!isCreator) {
       return await client.sendMessage(from, {
-        text: "*🚫 Owner Only Command!*"
-      }, { quoted: message });
-    }
-
-    if (!match.quoted) {
-      return await client.sendMessage(from, {
-        text: "*🍁 Please reply to a media message!*"
+        text: "🚫 Owner Only Command!"
       }, { quoted: message });
     }
 
     const quoted = match.quoted;
+
+    if (!quoted) {
+      return await client.sendMessage(from, {
+        text: "🍁 Please reply to an ordinary media message!"
+      }, { quoted: message });
+    }
+
     const mtype = quoted.mtype;
 
     if (!["imageMessage", "videoMessage", "audioMessage"].includes(mtype)) {
@@ -33,26 +32,27 @@ cmd({
       }, { quoted: message });
     }
 
-    // Do not bypass View Once privacy restrictions.
     if (quoted.viewOnce || quoted.msg?.viewOnce) {
       return await client.sendMessage(from, {
-        text: "⚠️ View Once media cannot be retrieved using this command."
+        text: "⚠️ View Once media is not supported."
       }, { quoted: message });
     }
 
-    // Download ordinary quoted media
+    if (typeof quoted.download !== "function") {
+      throw new Error("Download method is unavailable in this message wrapper.");
+    }
+
     const buffer = await quoted.download();
 
     if (!buffer || !buffer.length) {
-      throw new Error("Media download returned an empty buffer.");
+      throw new Error("Downloaded media is empty.");
     }
 
-    let messageContent = {};
+    let content;
 
     switch (mtype) {
-
       case "imageMessage":
-        messageContent = {
+        content = {
           image: buffer,
           caption: quoted.text || "",
           mimetype: quoted.mimetype || "image/jpeg"
@@ -60,7 +60,7 @@ cmd({
         break;
 
       case "videoMessage":
-        messageContent = {
+        content = {
           video: buffer,
           caption: quoted.text || "",
           mimetype: quoted.mimetype || "video/mp4"
@@ -68,7 +68,7 @@ cmd({
         break;
 
       case "audioMessage":
-        messageContent = {
+        content = {
           audio: buffer,
           mimetype: quoted.mimetype || "audio/mp4",
           ptt: quoted.ptt || false
@@ -76,19 +76,15 @@ cmd({
         break;
     }
 
-    await client.sendMessage(from, messageContent, {
+    await client.sendMessage(from, content, {
       quoted: message
     });
 
   } catch (error) {
-
     console.error("VV Error:", error);
 
     await client.sendMessage(from, {
-      text: "❌ Media Download Error:\n" +
-        (error.message || "Unknown error")
+      text: "❌ Media Error:\n" + error.message
     }, { quoted: message });
-
   }
-
 });
